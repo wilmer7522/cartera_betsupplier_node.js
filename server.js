@@ -76,7 +76,7 @@ const app = express();
 // ==============================
 // 🚀 CONFIGURACIÓN PARA PRODUCCIÓN (ACTUAL)
 // ==============================
-/*
+
 app.use(cors({
   origin: [
     "http://portal.betsupplier.co",
@@ -87,8 +87,8 @@ app.use(cors({
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"]
-}));*/
-
+}));
+/*
 // ==============================
 // 💻 CONFIGURACIÓN PARA DESARROLLO LOCAL (COMENTADA)
 // ==============================
@@ -105,7 +105,7 @@ app.use(
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
   })
-);
+);*/
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
