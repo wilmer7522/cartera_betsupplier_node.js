@@ -12,10 +12,24 @@ export async function obtenerUsuarioActual(req, res, next) {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({ detail: "Token no proporcionado o inválido" });
+    return res
+      .status(401)
+      .json({ detail: "Token no proporcionado o inválido" });
   }
 
   const token = authHeader.split(" ")[1];
+
+  // 🔥 NUEVA VALIDACIÓN: Verificar que el token no esté vacío o corrupto
+  if (
+    !token ||
+    token === "null" ||
+    token === "undefined" ||
+    token === "Bearer" ||
+    token.length < 10
+  ) {
+    console.error("❌ Token vacío o corrupto:", token);
+    return res.status(401).json({ detail: "Token vacío o corrupto" });
+  }
 
   try {
     const payload = jwt.verify(token, SECRET_KEY);
@@ -23,7 +37,9 @@ export async function obtenerUsuarioActual(req, res, next) {
       return res.status(401).json({ detail: "Token sin correo válido" });
     }
 
-    const usuario = await usuariosCollection.findOne({ correo: payload.correo });
+    const usuario = await usuariosCollection.findOne({
+      correo: payload.correo,
+    });
     if (!usuario) {
       return res.status(401).json({ detail: "Usuario no encontrado" });
     }
@@ -32,7 +48,15 @@ export async function obtenerUsuarioActual(req, res, next) {
     next();
   } catch (error) {
     console.error("❌ Error verificando token:", error.message);
-    return res.status(401).json({ detail: "Token inválido o expirado" });
+
+    // 🔥 MEJOR MENSAJE DE ERROR SEGÚN EL TIPO
+    if (error.name === "TokenExpiredError") {
+      return res.status(401).json({ detail: "Token expirado" });
+    } else if (error.name === "JsonWebTokenError") {
+      return res.status(401).json({ detail: "Token inválido" });
+    } else {
+      return res.status(401).json({ detail: "Error de autenticación" });
+    }
   }
 }
 

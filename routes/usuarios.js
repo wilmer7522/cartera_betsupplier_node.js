@@ -19,7 +19,9 @@ router.post("/registro", async (req, res) => {
 
     const existente = await usuariosCollection.findOne({ correo: correoLower });
     if (existente)
-      return res.status(400).json({ detail: "❌ El correo ya está registrado" });
+      return res
+        .status(400)
+        .json({ detail: "❌ El correo ya está registrado" });
 
     const hashed = await bcrypt.hash(password, 10);
 
@@ -42,6 +44,7 @@ router.post("/registro", async (req, res) => {
 });
 
 // === LOGIN ===
+// === LOGIN ===
 router.post("/login", async (req, res) => {
   try {
     const { correo, password } = req.body;
@@ -52,7 +55,18 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ detail: "❌ Credenciales inválidas" });
     }
 
-    const expira = Math.floor(Date.now() / 1000) + 6 * 60 * 60; // 6 horas
+    // 🔥 ACTUALIZAR FECHA DE ÚLTIMO LOGIN
+    const fechaLogin = new Date();
+    await usuariosCollection.updateOne(
+      { correo: correoLower },
+      {
+        $set: {
+          ultimo_login: fechaLogin,
+        },
+      }
+    );
+
+    const expira = Math.floor(Date.now() / 1000) + 30 * 60; // 5 minutos
     const token = jwt.sign(
       { correo: user.correo, rol: user.rol, exp: expira },
       SECRET_KEY
@@ -88,13 +102,20 @@ router.get("/todos", obtenerUsuarioActual, soloAdmin, async (req, res) => {
 // === CREAR USUARIO (ADMIN) ===
 router.post("/crear", obtenerUsuarioActual, soloAdmin, async (req, res) => {
   try {
-    const { correo, password, nombre, rol, vendedores_asociados = [] } =
-      req.body;
+    const {
+      correo,
+      password,
+      nombre,
+      rol,
+      vendedores_asociados = [],
+    } = req.body;
 
     const correoLower = correo.trim().toLowerCase();
 
     if (await usuariosCollection.findOne({ correo: correoLower })) {
-      return res.status(400).json({ detail: "❌ El correo ya está registrado" });
+      return res
+        .status(400)
+        .json({ detail: "❌ El correo ya está registrado" });
     }
 
     const hashed = await bcrypt.hash(password, 10);
@@ -110,7 +131,9 @@ router.post("/crear", obtenerUsuarioActual, soloAdmin, async (req, res) => {
 
     await usuariosCollection.insertOne(nuevo);
     res.json({
-      mensaje: `✅ Usuario '${nombre.trim().toUpperCase()}' creado correctamente`,
+      mensaje: `✅ Usuario '${nombre
+        .trim()
+        .toUpperCase()}' creado correctamente`,
     });
   } catch (err) {
     res.status(500).json({ detail: err.message });
