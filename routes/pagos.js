@@ -347,11 +347,85 @@ router.post("/test-webhook", async (req, res) => {
   }
 });
 
-// Ruta de redirección ultra-simple para depuración
-router.get("/response", (req, res) => {
-  console.log("--- LLEGASTE A LA RESPUESTA ---");
-  console.log("Query params:", req.query);
-  res.send("Llegaste a la respuesta");
+// Ruta de redirección que procesa la confirmación del pago
+router.get("/response", async (req, res) => {
+  console.log("--- PROCESANDO RESPUESTA DE WOMPI ---");
+  console.log("Query params recibidos:", req.query);
+
+  const { id: transaction_id } = req.query;
+
+  if (!transaction_id) {
+    console.error("Redirección desde Wompi sin ID de transacción.");
+    // Redirigir a una página de error en el frontend
+    return res.redirect(`${process.env.FRONTEND_URL}/payment-response?status=error&message=NO_TX_ID`);
+  }
+
+  try {
+    // 1. Consultar la API de Wompi para obtener el estado real de la transacción
+    const wompiApiUrl = process.env.NODE_ENV === 'production' 
+      ? 'https://production.wompi.co/v1/transactions' 
+      : 'https://sandbox.wompi.co/v1/transactions';
+    const privateKey = process.env.WOMPI_PRIVATE_KEY;
+
+    const response = await fetch(`${wompiApiUrl}/${transaction_id}`, {
+      headers: { Authorization: `Bearer ${privateKey}` },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error("Error al consultar la transacción en Wompi:", errorData);
+      return res.redirect(`${process.env.FRONTEND_URL}/payment-response?status=error&message=WOMPI_VERIFICATION_FAILED`);
+    }
+
+    const transaction = await response.json();
+    const { data: tx } = transaction;
+
+    const db = getDb();
+    const pagosCollection = db.collection("pagos_recibidos");
+    
+    // 2. Si el pago no fue aprobado, redirigir a página de fallo
+    if (tx.status !== "APPROVED") {
+      console.log(`Transacción ${tx.id} no fue aprobada. Estado: ${tx.status}.`);
+      return res.redirect(`${process.env.FRONTEND_URL}/payment-response?status=${tx.status}&ref=${tx.reference}`);
+    }
+
+    // 3. Verificar si la transacción ya fue procesada para evitar duplicados
+    const pagoExistente = await pagosCollection.findOne({ transaccion_id: tx.id });
+    if (pagoExistente) {
+      console.log(`Transacción ${tx.id} ya fue procesada anteriormente (DUPLICADO).`);
+      return res.redirect(`${process.env.FRONTEND_URL}/payment-response?status=DUPLICATED&ref=${tx.reference}`);
+    }
+
+    // 4. Extraer datos y guardarlos en MongoDB
+    const referenceParts = tx.reference.split("-");
+    const referencia_factura = referenceParts.length > 1 ? referenceParts[1] : tx.reference;
+
+    // Búsqueda de datos del cliente en la base de conocimiento
+    const baseConocimiento = db.collection("base_conocimiento");
+    const facturaInfo = await baseConocimiento.findOne({ Documento: referencia_factura });
+
+    const nuevoPago = {
+      transaccion_id: tx.id,
+      referencia_factura,
+      monto: tx.amount_in_cents / 100,
+      nit_cliente: facturaInfo?.Cliente || tx.customer_data?.legal_id || "No disponible",
+      nombre_cliente: facturaInfo?.Nombre_Cliente || tx.customer_data?.full_name || "No disponible",
+      fecha_pago: new Date(tx.created_at),
+      sincronizado_app_externa: false,
+      datos_verificados_bd: !!facturaInfo,
+      _wompi_raw_data: tx,
+    };
+
+    await pagosCollection.insertOne(nuevoPago);
+    console.log(`✅ Transacción ${tx.id} APROBADA y guardada en la base de datos.`);
+
+    // 5. Redirigir al usuario a la página de éxito en el frontend
+    res.redirect(`${process.env.FRONTEND_URL}/payment-response?status=APPROVED&ref=${tx.reference}&tx_id=${tx.id}`);
+
+  } catch (error) {
+    console.error("Error catastrófico en el endpoint /response:", error);
+    res.redirect(`${process.env.FRONTEND_URL}/payment-response?status=error&message=SERVER_ERROR`);
+  }
 });
 
 export default router;
