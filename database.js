@@ -4,13 +4,31 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const MONGO_URI = process.env.MONGO_URI;
+const MONGO_URI = process.env.MONGO_URL || process.env.MONGO_URI;
 const client = new MongoClient(MONGO_URI);
+let db;
 
-await client.connect();
+async function connectDB() {
+  try {
+    await client.connect();
+    db = client.db("cartera_db");
+    console.log("✅ Conexión exitosa con MongoDB");
+    return db;
+  } catch (error) {
+    console.error("❌ Error conectando a MongoDB:", error);
+    process.exit(1);
+  }
+}
 
-const db = client.db("cartera_db"); // usa el nombre de tu base
-console.log("✅ Conexión exitosa con MongoDB");
+function getDb() {
+    if (!db) {
+        throw new Error("Base de datos no inicializada. Llame a connectDB primero.");
+    }
+    return db;
+}
 
-export default db;
+export { connectDB, getDb, client };
+export default db; // Deprecated: Use getDb() instead
+
+
 

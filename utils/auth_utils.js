@@ -1,11 +1,11 @@
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
-import db from "../database.js";
+import { getDb } from "../database.js";
 
 dotenv.config();
 
 const SECRET_KEY = process.env.SECRET_KEY || "clave_super_secreta";
-const usuariosCollection = db.collection("usuarios");
+const getUsuariosCollection = () => getDb().collection("usuarios");
 
 // ✅ Middleware: verificar token y obtener usuario actual
 export async function obtenerUsuarioActual(req, res, next) {
@@ -37,7 +37,7 @@ export async function obtenerUsuarioActual(req, res, next) {
       return res.status(401).json({ detail: "Token sin correo válido" });
     }
 
-    const usuario = await usuariosCollection.findOne({
+    const usuario = await getUsuariosCollection().findOne({
       correo: payload.correo,
     });
     if (!usuario) {
