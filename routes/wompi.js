@@ -8,6 +8,14 @@ const router = express.Router();
 
 router.post('/signature', (req, res) => {
   const { reference, amountInCents, currency } = req.body;
+
+  // ESTO ES LO QUE NECESITAMOS VER EN LOS LOGS DE RENDER:
+  console.log("--- DEBUG FIRMA ---");
+  console.log("Referencia:", reference);
+  console.log("Monto en Centavos:", amountInCents);
+  console.log("Moneda:", currency);
+  console.log("Cadena a encriptar:", `${reference}${amountInCents}${currency}XXXXX`);
+  
   const wompiIntegritySecret = process.env.WOMPI_INTEGRITY_SECRET;
 
   if (!wompiIntegritySecret) {
