@@ -365,7 +365,14 @@ router.get("/response", async (req, res) => {
     const wompiApiUrl = process.env.NODE_ENV === 'production' 
       ? 'https://production.wompi.co/v1/transactions' 
       : 'https://sandbox.wompi.co/v1/transactions';
-    const privateKey = process.env.WOMPI_PRIVATE_KEY;
+    
+    // CORRECCIÓN: Buscar la llave privada con ambos nombres posibles.
+    const privateKey = process.env.WOMPI_PRIVATE_KEY || process.env.WOMPI_SECRET;
+
+    if (!privateKey) {
+        console.error("CRITICAL: No se encontró WOMPI_PRIVATE_KEY o WOMPI_SECRET en las variables de entorno.");
+        return res.redirect(`${process.env.FRONTEND_URL}/payment-response?status=error&message=CONFIG_ERROR`);
+    }
 
     const response = await fetch(`${wompiApiUrl}/${transaction_id}`, {
       headers: { Authorization: `Bearer ${privateKey}` },
