@@ -352,7 +352,7 @@ router.get("/response", async (req, res) => {
   console.log("--- PROCESANDO RESPUESTA DE WOMPI ---");
   console.log("Query params recibidos:", req.query);
 
-  const { id: transaction_id } = req.query;
+  const { id: transaction_id, env: wompi_env } = req.query; // Capturar el ambiente desde Wompi
 
   if (!transaction_id) {
     console.error("Redirección desde Wompi sin ID de transacción.");
@@ -361,10 +361,13 @@ router.get("/response", async (req, res) => {
   }
 
   try {
-    // 1. Consultar la API de Wompi para obtener el estado real de la transacción
-    const wompiApiUrl = process.env.NODE_ENV === 'production' 
-      ? 'https://production.wompi.co/v1/transactions' 
-      : 'https://sandbox.wompi.co/v1/transactions';
+    // --- LÓGICA DE URL DINÁMICA ---
+    // Decidir la URL de Wompi basada en el ambiente de la transacción, no del servidor.
+    const wompiApiUrl = wompi_env === 'test'
+      ? 'https://sandbox.wompi.co/v1/transactions'
+      : 'https://production.wompi.co/v1/transactions';
+    
+    console.log(`Verificando transacción contra el ambiente de Wompi: ${wompi_env}. URL: ${wompiApiUrl}`);
     
     // CORRECCIÓN: Buscar la llave privada con ambos nombres posibles.
     const privateKey = process.env.WOMPI_PRIVATE_KEY || process.env.WOMPI_SECRET;
