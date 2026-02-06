@@ -278,7 +278,7 @@ router.get("/estado/:transactionId", async (req, res) => {
       
       const nuevoSaldo = saldoOriginal - totalPagadoAcumulado;
 
-      return res.status(200).json({
+      const responsePayload = {
         status: "APROBADO",
         pago: {
           referencia: pago.referencia_factura,
@@ -295,7 +295,11 @@ router.get("/estado/:transactionId", async (req, res) => {
           nuevo_saldo_factura: nuevoSaldo,
           nombre_cliente_factura: facturaInfo?.Nombre_Cliente || pago.nombre_cliente,
         },
-      });
+      };
+
+      console.log('[DEBUG Saldo - Respuesta API] Objeto pago enviado al frontend:', JSON.stringify(responsePayload, null, 2));
+
+      return res.status(200).json(responsePayload);
     } else {
       return res.status(404).json({
         status: "PENDIENTE",
