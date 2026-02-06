@@ -227,21 +227,42 @@ router.get("/estado/:transactionId", async (req, res) => {
     const { transactionId } = req.params;
     const db = getDb();
     const pagosCollection = db.collection("pagos_recibidos");
+    const baseConocimiento = db.collection("base_conocimiento"); // Get base_conocimiento collection
 
     const pago = await pagosCollection.findOne({
       transaccion_id: transactionId,
     });
 
     if (pago) {
+      let facturaInfo = null;
+      if (pago.referencia_factura) {
+        facturaInfo = await baseConocimiento.findOne({ Documento: pago.referencia_factura });
+      }
+
+      const totalPagadoHastaAhora = (await pagosCollection.aggregate([
+        { $match: { referencia_factura: pago.referencia_factura, transaccion_id: { $ne: transactionId } } },
+        { $group: { _id: null, total: { $sum: "$monto" } } }
+      ]).toArray())[0]?.total || 0;
+
+      const saldoOriginal = facturaInfo?.Saldo || 0;
+      const nuevoSaldo = saldoOriginal - (totalPagadoHastaAhora + pago.monto);
+
       return res.status(200).json({
         status: "APROBADO",
         pago: {
           referencia: pago.referencia_factura,
           monto: pago.monto,
           cliente: pago.nombre_cliente,
-          nit: pago.nit_cliente, // <-- AÑADIDO
+          nit: pago.nit_cliente,
           fecha: pago.fecha_pago,
-          webhook_procesado: pago.webhook_procesado || false,
+          webhook_procesado: pago.metodo_confirmacion === 'webhook', // Adjusted to use metodo_confirmacion
+          payment_type: pago.payment_type, // Nuevo campo
+          payment_motive: pago.payment_motive, // Nuevo campo
+          // Datos de la factura original
+          documento_original: facturaInfo?.Documento || pago.referencia_factura,
+          saldo_original_factura: saldoOriginal,
+          nuevo_saldo_factura: nuevoSaldo,
+          nombre_cliente_factura: facturaInfo?.Nombre_Cliente || pago.nombre_cliente,
         },
       });
     } else {
