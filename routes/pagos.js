@@ -186,6 +186,8 @@ router.get("/reporte-excel", async (req, res) => {
       Monto: p.monto,
       "NIT Cliente": p.nit_cliente,
       "Nombre Cliente": p.nombre_cliente,
+      "Tipo de Pago": p.payment_type || 'N/A', // Nuevo campo
+      "Motivo de Pago": p.payment_motive || 'N/A', // Nuevo campo
       "Fecha Pago": p.fecha_pago
         ? new Date(p.fecha_pago).toLocaleString("es-CO")
         : "",
@@ -349,7 +351,7 @@ router.post("/test-webhook", async (req, res) => {
 });
 
 // --- LÓGICA REUTILIZABLE PARA GUARDAR EN BASE DE DATOS ---
-async function processAndSaveTransaction(transaction) {
+async function processAndSaveTransaction(transaction, paymentOption = 'desconocido', paymentMotive = null) {
   const db = getDb();
   const pagosCollection = db.collection("pagos_recibidos");
   const tx = transaction;
@@ -378,6 +380,8 @@ async function processAndSaveTransaction(transaction) {
     metodo_confirmacion: tx.sent_at ? 'webhook' : 'redirect', // Identificar cómo se confirmó
     sincronizado_app_externa: false,
     datos_verificados_bd: !!facturaInfo,
+    payment_type: paymentOption, // Nuevo campo
+    payment_motive: paymentMotive, // Nuevo campo
     _wompi_raw_data: tx,
   };
 
@@ -417,7 +421,9 @@ router.post("/events", async (req, res) => {
 
         // 2. Procesar solo si es una transacción aprobada
         if (event === "transaction.updated" && transaction.status === "APPROVED") {
-            await processAndSaveTransaction(transaction);
+            // Webhooks no tienen acceso directo a paymentOption/paymentMotive del frontend
+            // Se guardarán como 'webhook_event' y null por defecto en este caso.
+            await processAndSaveTransaction(transaction, 'webhook_event', null); 
         }
 
         // 3. Responder a Wompi que todo está bien
@@ -435,7 +441,7 @@ router.get("/response", async (req, res) => {
   console.log("--- PROCESANDO RESPUESTA DE WOMPI (REDIRECCIÓN) ---");
   console.log("Query params recibidos:", req.query);
 
-  const { id: transaction_id, env: wompi_env } = req.query;
+  const { id: transaction_id, env: wompi_env, paymentOption, paymentMotive } = req.query; // Extraer nuevos campos
 
   if (!transaction_id) {
     return res.redirect(`${process.env.FRONTEND_URL}/payment-response?status=error&message=NO_TX_ID`);
@@ -465,7 +471,7 @@ router.get("/response", async (req, res) => {
     const tx = transactionWrapper.data;
 
     if (tx.status === "APPROVED") {
-        await processAndSaveTransaction(tx);
+        await processAndSaveTransaction(tx, paymentOption, paymentMotive); // Pasar los nuevos campos
     }
     
     res.redirect(`${process.env.FRONTEND_URL}/payment-response?status=${tx.status}&ref=${tx.reference}&tx_id=${tx.id}`);
