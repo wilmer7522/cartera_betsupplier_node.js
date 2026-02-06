@@ -359,7 +359,16 @@ async function processAndSaveTransaction(transaction, paymentOption = 'desconoci
   // 1. Verificar si la transacción ya fue procesada
   const pagoExistente = await pagosCollection.findOne({ transaccion_id: tx.id });
   if (pagoExistente) {
-    console.log(`[Webhook/Shared] Transacción ${tx.id} ya fue procesada (DUPLICADO).`);
+    // If it exists, check if we need to update payment_type/motive from a redirect call
+    if (pagoExistente.payment_type === 'webhook_event' && paymentOption !== 'desconocido' && paymentOption !== 'webhook_event') {
+      console.log(`[Shared] Actualizando payment_type para TX ${tx.id} de 'webhook_event' a '${paymentOption}'.`);
+      await pagosCollection.updateOne(
+        { transaccion_id: tx.id },
+        { $set: { payment_type: paymentOption, payment_motive: paymentMotive } }
+      );
+      return { status: "UPDATED", data: { ...pagoExistente, payment_type: paymentOption, payment_motive: paymentMotive } };
+    }
+    console.log(`[Shared] Transacción ${tx.id} ya fue procesada (DUPLICADO).`);
     return { status: "DUPLICATED", data: pagoExistente };
   }
 
@@ -386,7 +395,7 @@ async function processAndSaveTransaction(transaction, paymentOption = 'desconoci
   };
 
   await pagosCollection.insertOne(nuevoPago);
-  console.log(`✅ [Webhook/Shared] Transacción ${tx.id} APROBADA y guardada en BD.`);
+  console.log(`✅ [Shared] Transacción ${tx.id} APROBADA y guardada en BD.`);
   return { status: "CREATED", data: nuevoPago };
 }
 
