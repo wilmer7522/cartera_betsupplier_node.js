@@ -423,15 +423,16 @@ async function processAndSaveTransaction(transaction) { // Eliminado paymentOpti
   const baseConocimiento = db.collection("base_conocimiento");
   const facturaInfo = await baseConocimiento.findOne({ Documento: referencia_factura });
 
-  // 3. Recuperar paymentOption y paymentMotive de payment_intents
+  // 3. Recuperar paymentOption, paymentMotive y el monto del payment_intents
   const paymentIntent = await paymentIntentsCollection.findOne({ reference: tx.reference });
   const paymentOption = paymentIntent?.paymentOption || 'desconocido';
   const paymentMotive = paymentIntent?.paymentMotive || null;
+  const montoPagadoReal = paymentIntent?.monto || (tx.amount_in_cents / 100); // Usar monto de intent, fallback a Wompi si no existe
 
   const nuevoPago = {
     transaccion_id: tx.id,
     referencia_factura,
-    monto: tx.amount_in_cents / 100,
+    monto: montoPagadoReal, // Usar el monto real de la intención de pago
     nit_cliente: facturaInfo?.Cliente || tx.customer_data?.legal_id || "No disponible",
     nombre_cliente: facturaInfo?.Nombre_Cliente || tx.customer_data?.full_name || "No disponible",
     fecha_pago: new Date(tx.created_at),
@@ -548,12 +549,12 @@ router.get("/response", async (req, res) => {
 // POST /pagos/save-intent - Guarda la intención de pago del frontend
 router.post("/save-intent", async (req, res) => {
   try {
-    const { reference, paymentOption, paymentMotive } = req.body;
+    const { reference, paymentOption, paymentMotive, monto } = req.body; // Añadir monto
 
-    if (!reference || !paymentOption) {
+    if (!reference || !paymentOption || monto === undefined) {
       return res
         .status(400)
-        .json({ error: "Faltan parámetros requeridos: reference, paymentOption." });
+        .json({ error: "Faltan parámetros requeridos: reference, paymentOption, monto." });
     }
 
     const db = getDb();
@@ -562,7 +563,7 @@ router.post("/save-intent", async (req, res) => {
     // Guardar o actualizar la intención de pago
     await paymentIntentsCollection.updateOne(
       { reference: reference },
-      { $set: { paymentOption, paymentMotive, createdAt: new Date() } },
+      { $set: { paymentOption, paymentMotive, monto, createdAt: new Date() } }, // Guardar monto
       { upsert: true } // Crea el documento si no existe
     );
 
