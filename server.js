@@ -62,6 +62,8 @@ app.use("/usuarios", usuariosRouter);
 app.use("/excel", excelRouter);
 app.use("/wompi", wompiRouter);
 app.use("/pagos", pagosRouter);
+app.use("/", pagosRouter); // Para exponer la ruta /events del webhook en la raíz
+
 
 // Manejo de rutas no encontradas
 app.use("*", (req, res) => {
