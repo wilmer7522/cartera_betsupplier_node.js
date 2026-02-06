@@ -239,12 +239,29 @@ router.get("/estado/:transactionId", async (req, res) => {
         facturaInfo = await baseConocimiento.findOne({ Documento: pago.referencia_factura });
       }
 
-      const totalPagadoAcumulado = (await pagosCollection.aggregate([
+      // Función auxiliar para parsear valores monetarios (maneja comas y puntos)
+      const parseCurrencyToFloat = (value) => {
+        if (typeof value === 'number') return value;
+        if (typeof value === 'string') {
+          // Primero, reemplazar el separador de miles si es un punto y el decimal es coma
+          // O simplemente eliminar los separadores de miles y reemplazar la coma decimal por punto
+          const cleaned = value.replace(/\./g, '').replace(/,/g, '.');
+          return parseFloat(cleaned);
+        }
+        return 0;
+      };
+
+      const totalPagadoAcumulado = parseCurrencyToFloat((await pagosCollection.aggregate([
         { $match: { referencia_factura: pago.referencia_factura } },
         { $group: { _id: null, total: { $sum: "$monto" } } }
-      ]).toArray())[0]?.total || 0;
+      ]).toArray())[0]?.total || 0);
 
-      const saldoOriginal = facturaInfo?.Saldo || 0;
+      const saldoOriginal = parseCurrencyToFloat(facturaInfo?.Saldo || 0);
+
+      console.log(`[DEBUG Saldo] TX: ${transactionId}, Ref: ${pago.referencia_factura}`);
+      console.log(`[DEBUG Saldo] Saldo Original Parseado: ${saldoOriginal}`);
+      console.log(`[DEBUG Saldo] Total Pagado Acumulado: ${totalPagadoAcumulado}`);
+      
       const nuevoSaldo = saldoOriginal - totalPagadoAcumulado;
 
       return res.status(200).json({
@@ -372,57 +389,30 @@ router.post("/test-webhook", async (req, res) => {
 });
 
 // --- LÓGICA REUTILIZABLE PARA GUARDAR EN BASE DE DATOS ---
-async function processAndSaveTransaction(transaction, paymentOption = 'desconocido', paymentMotive = null) {
+async function processAndSaveTransaction(transaction) { // Eliminado paymentOption y paymentMotive
   const db = getDb();
   const pagosCollection = db.collection("pagos_recibidos");
+  const paymentIntentsCollection = db.collection("payment_intents"); // Nueva colección
   const tx = transaction;
 
   // 1. Verificar si la transacción ya fue procesada
   const pagoExistente = await pagosCollection.findOne({ transaccion_id: tx.id });
-      if (pagoExistente) {
-        // If it exists, check if we need to update payment_type/motive from a redirect call
-        if (
-          pagoExistente.payment_type === "webhook_event" &&
-          paymentOption !== "desconocido" &&
-          paymentOption !== "webhook_event"
-        ) {
-          console.log(
-            `[Shared] Intentando actualizar payment_type para TX ${tx.id} de 'webhook_event' a '${paymentOption}'.`,
-          );
-          const updateResult = await pagosCollection.updateOne(
-            { transaccion_id: tx.id },
-            { $set: { payment_type: paymentOption, payment_motive: paymentMotive } },
-          );
-          console.log(
-            `[Shared] Resultado de la actualización para TX ${tx.id}:`,
-            updateResult.modifiedCount,
-          );
-          if (updateResult.modifiedCount > 0) {
-            return {
-              status: "UPDATED",
-              data: {
-                ...pagoExistente,
-                payment_type: paymentOption,
-                payment_motive: paymentMotive,
-              },
-            };
-          } else {
-            console.warn(
-              `[Shared] La actualización para TX ${tx.id} no modificó ningún documento.`,
-            );
-          }
-        }
-        console.log(
-          `[Shared] Transacción ${tx.id} ya fue procesada (DUPLICADO), sin actualización de payment_type/motive.`,
-        );
-        return { status: "DUPLICATED", data: pagoExistente };
-      }
+  if (pagoExistente) {
+    console.log(`[Shared] Transacción ${tx.id} ya fue procesada (DUPLICADO).`);
+    return { status: "DUPLICATED", data: pagoExistente };
+  }
+
   // 2. Extraer datos y guardarlos en MongoDB
   const referenceParts = tx.reference.split("-");
   const referencia_factura = referenceParts.length > 1 ? referenceParts[1] : tx.reference;
 
   const baseConocimiento = db.collection("base_conocimiento");
   const facturaInfo = await baseConocimiento.findOne({ Documento: referencia_factura });
+
+  // 3. Recuperar paymentOption y paymentMotive de payment_intents
+  const paymentIntent = await paymentIntentsCollection.findOne({ reference: tx.reference });
+  const paymentOption = paymentIntent?.paymentOption || 'desconocido';
+  const paymentMotive = paymentIntent?.paymentMotive || null;
 
   const nuevoPago = {
     transaccion_id: tx.id,
@@ -434,13 +424,18 @@ async function processAndSaveTransaction(transaction, paymentOption = 'desconoci
     metodo_confirmacion: tx.sent_at ? 'webhook' : 'redirect', // Identificar cómo se confirmó
     sincronizado_app_externa: false,
     datos_verificados_bd: !!facturaInfo,
-    payment_type: paymentOption, // Nuevo campo
-    payment_motive: paymentMotive, // Nuevo campo
+    payment_type: paymentOption, // Usar de payment_intents
+    payment_motive: paymentMotive, // Usar de payment_intents
     _wompi_raw_data: tx,
   };
 
   await pagosCollection.insertOne(nuevoPago);
   console.log(`✅ [Shared] Transacción ${tx.id} APROBADA y guardada en BD.`);
+
+  // 4. Limpiar el registro de payment_intents
+  await paymentIntentsCollection.deleteOne({ reference: tx.reference });
+  console.log(`[Shared] Intención de pago eliminada para referencia: ${tx.reference}`);
+
   return { status: "CREATED", data: nuevoPago };
 }
 
@@ -475,9 +470,9 @@ router.post("/events", async (req, res) => {
 
         // 2. Procesar solo si es una transacción aprobada
         if (event === "transaction.updated" && transaction.status === "APPROVED") {
-            // Webhooks no tienen acceso directo a paymentOption/paymentMotive del frontend
-            // Se guardarán como 'webhook_event' y null por defecto en este caso.
-            await processAndSaveTransaction(transaction, 'webhook_event', null); 
+            // El webhook ahora llamará a processAndSaveTransaction sin los parámetros de intención,
+            // ya que estos serán recuperados internamente de payment_intents.
+            await processAndSaveTransaction(transaction); 
         }
 
         // 3. Responder a Wompi que todo está bien
@@ -495,7 +490,7 @@ router.get("/response", async (req, res) => {
   console.log("--- PROCESANDO RESPUESTA DE WOMPI (REDIRECCIÓN) ---");
   console.log("Query params recibidos:", req.query);
 
-  const { id: transaction_id, env: wompi_env, paymentOption, paymentMotive } = req.query; // Extraer nuevos campos
+  const { id: transaction_id, env: wompi_env } = req.query; // YA NO EXTRAEMOS paymentOption, paymentMotive
 
   if (!transaction_id) {
     return res.redirect(`${process.env.FRONTEND_URL}/payment-response?status=error&message=NO_TX_ID`);
@@ -525,7 +520,7 @@ router.get("/response", async (req, res) => {
     const tx = transactionWrapper.data;
 
     if (tx.status === "APPROVED") {
-        await processAndSaveTransaction(tx, paymentOption, paymentMotive); // Pasar los nuevos campos
+        await processAndSaveTransaction(tx); // YA NO PASAMOS paymentOption, paymentMotive
     }
     
     res.redirect(`${process.env.FRONTEND_URL}/payment-response?status=${tx.status}&ref=${tx.reference}&tx_id=${tx.id}`);
@@ -536,6 +531,33 @@ router.get("/response", async (req, res) => {
   }
 });
 
-// El resto de tus rutas (reporte-excel, estado, config, signature, etc.) permanecen aquí...
-// ...
+// POST /pagos/save-intent - Guarda la intención de pago del frontend
+router.post("/save-intent", async (req, res) => {
+  try {
+    const { reference, paymentOption, paymentMotive } = req.body;
+
+    if (!reference || !paymentOption) {
+      return res
+        .status(400)
+        .json({ error: "Faltan parámetros requeridos: reference, paymentOption." });
+    }
+
+    const db = getDb();
+    const paymentIntentsCollection = db.collection("payment_intents");
+
+    // Guardar o actualizar la intención de pago
+    await paymentIntentsCollection.updateOne(
+      { reference: reference },
+      { $set: { paymentOption, paymentMotive, createdAt: new Date() } },
+      { upsert: true } // Crea el documento si no existe
+    );
+
+    res.status(200).json({ message: "Intención de pago guardada exitosamente." });
+  } catch (error) {
+    console.error("Error al guardar la intención de pago:", error);
+    res
+      .status(500)
+      .json({ error: "Error interno del servidor al guardar la intención de pago." });
+  }
+});
 export default router;
