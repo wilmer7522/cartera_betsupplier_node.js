@@ -237,6 +237,7 @@ router.get("/estado/:transactionId", async (req, res) => {
           referencia: pago.referencia_factura,
           monto: pago.monto,
           cliente: pago.nombre_cliente,
+          nit: pago.nit_cliente, // <-- AÑADIDO
           fecha: pago.fecha_pago,
           webhook_procesado: pago.webhook_procesado || false,
         },
