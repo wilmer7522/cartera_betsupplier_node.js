@@ -45,78 +45,117 @@ router.post(
   soloAdmin,
   upload.single("archivo"),
   async (req, res) => {
-    const filePath = req.file?.path;
-    if (!filePath)
-      return res.status(400).json({ detail: "No se subió archivo" });
-
     try {
-      const isXlsx = req.file.originalname.toLowerCase().endsWith(".xlsx");
-      const BATCH_SIZE = 1000;
-      let totalInsertados = 0;
-      let lote = [];
+      if (!req.file || !req.file.buffer) {
+        return res.status(400).json({ detail: "No se subió archivo" });
+      }
 
-      await getBaseConocimiento().deleteMany({});
+      // Leer Excel desde buffer (xls / xlsx)
+      const workbook = xlsx.read(req.file.buffer, {
+        type: "buffer",
+        cellDates: true,
+      });
 
-      if (isXlsx) {
-        const workbookReader = new ExcelJS.stream.xlsx.WorkbookReader(
-          filePath,
-          { sharedStrings: "cache", worksheets: "emit" },
-        );
-        for await (const worksheetReader of workbookReader) {
-          let headers = null;
-          for await (const row of worksheetReader) {
-            if (!headers) {
-              headers = row.values;
-              continue;
-            }
-            const rowData = {};
-            for (let i = 1; i < headers.length; i++) {
-              let val = row.values[i];
-              if (val && typeof val === "object")
-                val = val.result || val.text || val;
-              rowData[headers[i]] = val;
-            }
-            if (rowData.Cliente && rowData.Documento) {
-              lote.push(processExcelRow(rowData));
-            }
-            if (lote.length >= BATCH_SIZE) {
-              await getBaseConocimiento().insertMany(lote);
-              totalInsertados += lote.length;
-              lote = [];
+      const sheetName = workbook.SheetNames[0];
+      const rows = xlsx.utils.sheet_to_json(
+        workbook.Sheets[sheetName],
+        {
+          defval: null,
+          raw: true,
+        }
+      );
+
+      if (!rows.length) {
+        return res
+          .status(400)
+          .json({ detail: "El archivo Excel está vacío" });
+      }
+
+      // 🔹 Excluir siempre las últimas 2 filas (totales)
+      const rowsValidas =
+        rows.length > 2 ? rows.slice(0, -2) : rows;
+
+      // --------------------------------------------------
+      // Utilidades mínimas para fechas
+      // --------------------------------------------------
+
+      const excelSerialToDate = (n) => {
+        const num = Number(n);
+        if (isNaN(num)) return null;
+        if (num < 25000 || num > 60000) return null;
+
+        const d = new Date(Math.round((num - 25569) * 86400 * 1000));
+        return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+      };
+
+      const isDateKey = (key) => {
+        if (!key) return false;
+        const k = String(key).toLowerCase().replace(/\s+/g, "");
+        return k === "f_expedic" || k === "f_vencim";
+      };
+
+      // --------------------------------------------------
+      // Normalización mínima
+      // --------------------------------------------------
+
+      const data = rowsValidas.map((row) => {
+        const out = {};
+
+        for (const [k, v] of Object.entries(row)) {
+          let val = v;
+
+          if (typeof val === "string") {
+            val = val.trim();
+          }
+
+          if (isDateKey(k)) {
+            if (val instanceof Date) {
+              val = new Date(
+                Date.UTC(val.getFullYear(), val.getMonth(), val.getDate())
+              );
+            } else if (typeof val === "number") {
+              val = excelSerialToDate(val) || val;
+            } else if (
+              typeof val === "string" &&
+              /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/.test(val)
+            ) {
+              const [, d, m, y] = val.match(
+                /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/
+              );
+              let year = parseInt(y, 10);
+              if (year < 100) year += year < 70 ? 2000 : 1900;
+
+              val = new Date(
+                Date.UTC(year, parseInt(m, 10) - 1, parseInt(d, 10))
+              );
             }
           }
-        }
-      } else {
-        const workbook = xlsx.readFile(filePath, {
-          type: "file",
-          cellDates: true,
-          dense: true,
-        });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows = xlsx.utils
-          .sheet_to_json(sheet, { defval: null, raw: true })
-          .slice(0, -2);
-        for (let i = 0; i < rows.length; i += BATCH_SIZE) {
-          const chunk = rows
-            .slice(i, i + BATCH_SIZE)
-            .map((r) => processExcelRow(r));
-          await getBaseConocimiento().insertMany(chunk);
-          totalInsertados += chunk.length;
-        }
-      }
 
-      if (lote.length > 0) {
-        await getBaseConocimiento().insertMany(lote);
-        totalInsertados += lote.length;
-      }
-      fs.unlink(filePath, () => {});
-      res.json({ mensaje: "Procesado", total_registros: totalInsertados });
+          out[k] = val;
+        }
+
+        return out;
+      });
+
+      // --------------------------------------------------
+      // Persistencia
+      // --------------------------------------------------
+
+      await baseConocimiento.deleteMany({});
+      await baseConocimiento.insertMany(data);
+
+      res.json({
+        mensaje: `Archivo ${req.file.originalname} procesado correctamente`,
+        total_registros: data.length,
+      });
     } catch (error) {
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-      res.status(500).json({ detail: error.message });
+      res.status(500).json({
+        detail: `Error al procesar el archivo: ${error.message}`,
+      });
     }
-  },
+  }
 );
+
 
 // === 2. Ver Dashboard ===
 router.get("/ver_dashboard", obtenerUsuarioActual, async (req, res) => {
