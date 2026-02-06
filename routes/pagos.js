@@ -262,6 +262,20 @@ router.get("/estado/:transactionId", async (req, res) => {
       console.log(`[DEBUG Saldo] Saldo Original Parseado: ${saldoOriginal}`);
       console.log(`[DEBUG Saldo] Total Pagado Acumulado: ${totalPagadoAcumulado}`);
       
+      console.log('[DEBUG Saldo - Detalles] =======================================');
+      console.log('[DEBUG Saldo - Detalles] Transaccion ID:', transactionId);
+      console.log('[DEBUG Saldo - Detalles] Referencia Factura:', pago.referencia_factura);
+      console.log('[DEBUG Saldo - Detalles] FacturaInfo (raw):', JSON.stringify(facturaInfo, null, 2));
+      console.log('[DEBUG Saldo - Detalles] Saldo Original (antes de parse):', facturaInfo?.Saldo);
+      console.log('[DEBUG Saldo - Detalles] Saldo Original (parseado):', saldoOriginal);
+
+      const pagosContribuyentes = await pagosCollection.find({ referencia_factura: pago.referencia_factura }).toArray();
+      console.log('[DEBUG Saldo - Detalles] Pagos que contribuyen a acumulado:', JSON.stringify(pagosContribuyentes, null, 2));
+      
+      console.log('[DEBUG Saldo - Detalles] Total Pagado Acumulado (calculado):', totalPagadoAcumulado);
+      console.log('[DEBUG Saldo - Detalles] Monto de este pago:', pago.monto);
+      console.log('[DEBUG Saldo - Detalles] =======================================');
+      
       const nuevoSaldo = saldoOriginal - totalPagadoAcumulado;
 
       return res.status(200).json({
