@@ -239,13 +239,13 @@ router.get("/estado/:transactionId", async (req, res) => {
         facturaInfo = await baseConocimiento.findOne({ Documento: pago.referencia_factura });
       }
 
-      const totalPagadoHastaAhora = (await pagosCollection.aggregate([
-        { $match: { referencia_factura: pago.referencia_factura, transaccion_id: { $ne: transactionId } } },
+      const totalPagadoAcumulado = (await pagosCollection.aggregate([
+        { $match: { referencia_factura: pago.referencia_factura } },
         { $group: { _id: null, total: { $sum: "$monto" } } }
       ]).toArray())[0]?.total || 0;
 
       const saldoOriginal = facturaInfo?.Saldo || 0;
-      const nuevoSaldo = saldoOriginal - (totalPagadoHastaAhora + pago.monto);
+      const nuevoSaldo = saldoOriginal - totalPagadoAcumulado;
 
       return res.status(200).json({
         status: "APROBADO",
@@ -379,20 +379,44 @@ async function processAndSaveTransaction(transaction, paymentOption = 'desconoci
 
   // 1. Verificar si la transacción ya fue procesada
   const pagoExistente = await pagosCollection.findOne({ transaccion_id: tx.id });
-  if (pagoExistente) {
-    // If it exists, check if we need to update payment_type/motive from a redirect call
-    if (pagoExistente.payment_type === 'webhook_event' && paymentOption !== 'desconocido' && paymentOption !== 'webhook_event') {
-      console.log(`[Shared] Actualizando payment_type para TX ${tx.id} de 'webhook_event' a '${paymentOption}'.`);
-      await pagosCollection.updateOne(
-        { transaccion_id: tx.id },
-        { $set: { payment_type: paymentOption, payment_motive: paymentMotive } }
-      );
-      return { status: "UPDATED", data: { ...pagoExistente, payment_type: paymentOption, payment_motive: paymentMotive } };
-    }
-    console.log(`[Shared] Transacción ${tx.id} ya fue procesada (DUPLICADO).`);
-    return { status: "DUPLICATED", data: pagoExistente };
-  }
-
+      if (pagoExistente) {
+        // If it exists, check if we need to update payment_type/motive from a redirect call
+        if (
+          pagoExistente.payment_type === "webhook_event" &&
+          paymentOption !== "desconocido" &&
+          paymentOption !== "webhook_event"
+        ) {
+          console.log(
+            `[Shared] Intentando actualizar payment_type para TX ${tx.id} de 'webhook_event' a '${paymentOption}'.`,
+          );
+          const updateResult = await pagosCollection.updateOne(
+            { transaccion_id: tx.id },
+            { $set: { payment_type: paymentOption, payment_motive: paymentMotive } },
+          );
+          console.log(
+            `[Shared] Resultado de la actualización para TX ${tx.id}:`,
+            updateResult.modifiedCount,
+          );
+          if (updateResult.modifiedCount > 0) {
+            return {
+              status: "UPDATED",
+              data: {
+                ...pagoExistente,
+                payment_type: paymentOption,
+                payment_motive: paymentMotive,
+              },
+            };
+          } else {
+            console.warn(
+              `[Shared] La actualización para TX ${tx.id} no modificó ningún documento.`,
+            );
+          }
+        }
+        console.log(
+          `[Shared] Transacción ${tx.id} ya fue procesada (DUPLICADO), sin actualización de payment_type/motive.`,
+        );
+        return { status: "DUPLICATED", data: pagoExistente };
+      }
   // 2. Extraer datos y guardarlos en MongoDB
   const referenceParts = tx.reference.split("-");
   const referencia_factura = referenceParts.length > 1 ? referenceParts[1] : tx.reference;
