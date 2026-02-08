@@ -351,19 +351,82 @@ router.post(
   soloAdmin,
   upload.single("archivo"),
   async (req, res) => {
-    const filePath = req.file?.path;
+    const buffer = req.file?.buffer;
+    const originalname = req.file?.originalname;
+
+    if (!buffer)
+      return res.status(400).json({ detail: "No se subió archivo o está vacío" });
+    
+    // Validar que sea un archivo .xlsx
+    if (!originalname || !originalname.toLowerCase().endsWith(".xlsx")) {
+      return res.status(400).json({ detail: "Formato de archivo no soportado para cupo de cartera. Por favor, sube un archivo .xlsx" });
+    }
+
+    const tempFilePath = `/tmp/${Date.now()}-${originalname}`; // Ruta temporal
+    
     try {
+      fs.writeFileSync(tempFilePath, buffer); // Escribir buffer a archivo temporal
+
       await getCupoCartera().deleteMany({});
-      const workbook = xlsx.readFile(filePath, { type: "file" });
-      const rows = xlsx.utils.sheet_to_json(
-        workbook.Sheets[workbook.SheetNames[0]],
-        { range: 4, defval: null },
+
+      const BATCH_SIZE = 1000;
+      let totalInsertados = 0;
+      let headers = null;
+      let headerRowFound = false;
+      let rowsToInsert = [];
+
+      const workbookReader = new ExcelJS.stream.xlsx.WorkbookReader(
+        tempFilePath,
+        { sharedStrings: "cache", worksheets: "emit" },
       );
-      if (rows.length > 0) await getCupoCartera().insertMany(rows);
-      fs.unlink(filePath, () => {});
-      res.json({ mensaje: "Cupos actualizados", total_registros: rows.length });
+
+      for await (const worksheetReader of workbookReader) {
+        let rowNum = 0;
+        for await (const row of worksheetReader) {
+          rowNum++;
+          if (rowNum < 5) { // Omitir las primeras 4 filas (range: 4)
+            continue;
+          }
+
+          if (!headerRowFound) {
+            headers = row.values.map(h => typeof h === 'string' ? h.trim() : h); // Obtener encabezados de la primera fila de datos
+            headerRowFound = true;
+            continue;
+          }
+          
+          const rowData = {};
+          if (headers) {
+              for (let i = 1; i < headers.length; i++) { // Asumimos headers[0] es vacío por ExcelJS
+                  let val = row.values[i];
+                  if (val && typeof val === "object") val = val.result || val.text || val;
+                  rowData[headers[i]] = val;
+              }
+          }
+          
+          if (Object.keys(rowData).length > 0) { // Asegurarse de que no sea una fila completamente vacía
+            rowsToInsert.push(rowData);
+          }
+
+          if (rowsToInsert.length >= BATCH_SIZE) {
+            await getCupoCartera().insertMany(rowsToInsert);
+            totalInsertados += rowsToInsert.length;
+            rowsToInsert = [];
+          }
+        }
+      }
+
+      if (rowsToInsert.length > 0) { // Insertar cualquier lote restante
+        await getCupoCartera().insertMany(rowsToInsert);
+        totalInsertados += rowsToInsert.length;
+      }
+      
+      res.json({ mensaje: "Cupos actualizados", total_registros: totalInsertados });
     } catch (error) {
       res.status(500).json({ detail: error.message });
+    } finally {
+      if (fs.existsSync(tempFilePath)) {
+        fs.unlinkSync(tempFilePath); // Limpiar archivo temporal
+      }
     }
   },
 );
