@@ -429,9 +429,9 @@ async function processAndSaveTransaction(transaction) {
 
 // --- ENDPOINT DE WEBHOOK (EVENTOS) ---
 router.post("/events", async (req, res) => {
-    const eventSecret = process.env.WOMPI_EVENTS_SECRET;
-    if (!eventSecret) {
-        console.error("CRITICAL: WOMPI_EVENTS_SECRET no está configurado.");
+    // CORREGIDO: Usar la constante WOMPI_EVENT_SECRET (singular) definida al inicio del archivo.
+    if (!WOMPI_EVENT_SECRET) {
+        console.error("CRITICAL: WOMPI_EVENT_SECRET no está configurado en las variables de entorno.");
         return res.status(500).json({ error: "Server configuration error" });
     }
 
@@ -445,7 +445,7 @@ router.post("/events", async (req, res) => {
             "transaction.status": transaction.status,
             "transaction.amount_in_cents": transaction.amount_in_cents,
         };
-        const concatenatedString = `${signatureProperties["transaction.id"]}${signatureProperties["transaction.status"]}${signatureProperties["transaction.amount_in_cents"]}${timestamp}${eventSecret}`;
+        const concatenatedString = `${signatureProperties["transaction.id"]}${signatureProperties["transaction.status"]}${signatureProperties["transaction.amount_in_cents"]}${timestamp}${WOMPI_EVENT_SECRET}`;
         const calculatedSignature = crypto.createHash('sha256').update(concatenatedString).digest('hex');
 
         if (calculatedSignature !== signature.checksum) {
