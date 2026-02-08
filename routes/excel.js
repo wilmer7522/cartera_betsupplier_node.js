@@ -41,68 +41,47 @@ router.post(
   soloAdmin,
   upload.single("archivo"),
   async (req, res) => {
-    const buffer = req.file?.buffer; // Usar buffer en lugar de filePath
+    const buffer = req.file?.buffer;
+    const originalname = req.file?.originalname;
+
     if (!buffer)
       return res.status(400).json({ detail: "No se subió archivo o está vacío" });
 
+    // Validar que sea un archivo .xls
+    if (!originalname || !originalname.toLowerCase().endsWith(".xls")) {
+      return res.status(400).json({ detail: "Formato de archivo no soportado. Por favor, sube un archivo .xls" });
+    }
+
     try {
-      const isXlsx = req.file.originalname.toLowerCase().endsWith(".xlsx");
       const BATCH_SIZE = 1000;
       let totalInsertados = 0;
-      let lote = [];
 
       await getBaseConocimiento().deleteMany({});
 
-      if (isXlsx) {
-        // Lógica para .xlsx con ExcelJS (manteniendo stream si es posible, o adaptando)
-        // Nota: ExcelJS.stream.xlsx.WorkbookReader espera una ruta de archivo, no un buffer.
-        // Si solo se usan .xls, este bloque puede simplificarse o eliminarse.
-        // Para usar ExcelJS con un buffer, se necesitaría un enfoque diferente:
-        // const workbook = new ExcelJS.Workbook();
-        // await workbook.xlsx.load(buffer);
-        // ... y luego procesar la hoja de trabajo normalmente.
-        // Pero dado que es .xls, enfocarse en el 'else'.
-        // Por simplicidad, si solo es .xls, voy a mover toda la lógica a un solo bloque.
+      const workbook = xlsx.read(buffer, {
+        type: "buffer",
+        cellDates: true,
+        dense: true,
+      });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = xlsx.utils
+        .sheet_to_json(sheet, { defval: null, raw: true })
+        .slice(0, -2); // Se omiten las dos últimas filas
 
-        // Moveré la lógica para .xlsx a un bloque comentado o la quitaré si no se usa.
-        // Asumiendo que SIEMPRE es .xls, eliminaré la complejidad de ExcelJS streaming por ahora.
-        // Si alguna vez necesitas .xlsx, tendremos que adaptar este bloque.
-        
-        throw new Error("El procesamiento de archivos .xlsx aún no está adaptado para buffers de memoria."); // Esto debería prevenir su uso si el tipo es XLSX
-      } else { // Este bloque es para archivos .xls (o cualquier cosa que no sea .xlsx)
-        const workbook = xlsx.read(buffer, { // Leer desde buffer
-          type: "buffer",
-          cellDates: true,
-          dense: true,
-        });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows = xlsx.utils
-          .sheet_to_json(sheet, { defval: null, raw: true })
-          .slice(0, -2);
-        for (let i = 0; i < rows.length; i += BATCH_SIZE) {
-          const chunk = rows
-            .slice(i, i + BATCH_SIZE)
-            .map((r) => processExcelRow(r));
-          await getBaseConocimiento().insertMany(chunk);
-          totalInsertados += chunk.length;
-        }
+      for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+        const chunk = rows
+          .slice(i, i + BATCH_SIZE)
+          .map((r) => processExcelRow(r));
+        await getBaseConocimiento().insertMany(chunk);
+        totalInsertados += chunk.length;
       }
-
-      // 'lote' ya no se usa en este contexto porque se procesa por chunks
-      // if (lote.length > 0) {
-      //   await getBaseConocimiento().insertMany(lote);
-      //   totalInsertados += lote.length;
-      // }
-      // fs.unlink(filePath, () => {}); // Eliminar fs.unlink
 
       res.json({ mensaje: "Procesado", total_registros: totalInsertados });
     } catch (error) {
-      // if (fs.existsSync(filePath)) fs.unlinkSync(filePath); // Eliminar referencia a filePath
       res.status(500).json({ detail: error.message });
     }
   },
 );
-
 // === 2. Ver Dashboard ===
 router.get("/ver_dashboard", obtenerUsuarioActual, async (req, res) => {
   try {
