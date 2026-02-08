@@ -227,7 +227,7 @@ router.get("/estado/:transactionId", async (req, res) => {
     const { transactionId } = req.params;
     const db = getDb();
     const pagosCollection = db.collection("pagos_recibidos");
-    const baseConocimiento = db.collection("base_conocimiento"); // Get base_conocimiento collection
+    const baseConocimiento = db.collection("base_conocimiento");
 
     const pago = await pagosCollection.findOne({
       transaccion_id: transactionId,
@@ -243,40 +243,16 @@ router.get("/estado/:transactionId", async (req, res) => {
       const parseCurrencyToFloat = (value) => {
         if (typeof value === 'number') return value;
         if (typeof value === 'string') {
-          // Primero, reemplazar el separador de miles si es un punto y el decimal es coma
-          // O simplemente eliminar los separadores de miles y reemplazar la coma decimal por punto
           const cleaned = value.replace(/\./g, '').replace(/,/g, '.');
           return parseFloat(cleaned);
         }
         return 0;
       };
 
-      const totalPagadoAcumulado = parseCurrencyToFloat((await pagosCollection.aggregate([
-        { $match: { referencia_factura: pago.referencia_factura } },
-        { $group: { _id: null, total: { $sum: "$monto" } } }
-      ]).toArray())[0]?.total || 0);
-
       const saldoOriginal = parseCurrencyToFloat(facturaInfo?.Saldo || 0);
-
-      console.log(`[DEBUG Saldo] TX: ${transactionId}, Ref: ${pago.referencia_factura}`);
-      console.log(`[DEBUG Saldo] Saldo Original Parseado: ${saldoOriginal}`);
-      console.log(`[DEBUG Saldo] Total Pagado Acumulado: ${totalPagadoAcumulado}`);
       
-      console.log('[DEBUG Saldo - Detalles] =======================================');
-      console.log('[DEBUG Saldo - Detalles] Transaccion ID:', transactionId);
-      console.log('[DEBUG Saldo - Detalles] Referencia Factura:', pago.referencia_factura);
-      console.log('[DEBUG Saldo - Detalles] FacturaInfo (raw):', JSON.stringify(facturaInfo, null, 2));
-      console.log('[DEBUG Saldo - Detalles] Saldo Original (antes de parse):', facturaInfo?.Saldo);
-      console.log('[DEBUG Saldo - Detalles] Saldo Original (parseado):', saldoOriginal);
-
-      const pagosContribuyentes = await pagosCollection.find({ referencia_factura: pago.referencia_factura }).toArray();
-      console.log('[DEBUG Saldo - Detalles] Pagos que contribuyen a acumulado:', JSON.stringify(pagosContribuyentes, null, 2));
-      
-      console.log('[DEBUG Saldo - Detalles] Total Pagado Acumulado (calculado):', totalPagadoAcumulado);
-      console.log('[DEBUG Saldo - Detalles] Monto de este pago:', pago.monto);
-      console.log('[DEBUG Saldo - Detalles] =======================================');
-      
-      const nuevoSaldo = saldoOriginal - totalPagadoAcumulado;
+      // Cálculo corregido: se resta solo el monto de este pago, no el acumulado.
+      const nuevoSaldo = saldoOriginal - pago.monto;
 
       const responsePayload = {
         status: "APROBADO",
@@ -286,18 +262,16 @@ router.get("/estado/:transactionId", async (req, res) => {
           cliente: pago.nombre_cliente,
           nit: pago.nit_cliente,
           fecha: pago.fecha_pago,
-          webhook_procesado: pago.metodo_confirmacion === 'webhook', // Adjusted to use metodo_confirmacion
-          payment_type: pago.payment_type, // Nuevo campo
-          payment_motive: pago.payment_motive, // Nuevo campo
-          // Datos de la factura original
+          webhook_procesado: pago.metodo_confirmacion === 'webhook',
+          payment_type: pago.payment_type,
+          payment_motive: pago.payment_motive,
+          // Datos de la factura original para visualización
           documento_original: facturaInfo?.Documento || pago.referencia_factura,
           saldo_original_factura: saldoOriginal,
-          nuevo_saldo_factura: nuevoSaldo,
+          nuevo_saldo_factura: nuevoSaldo, // Este es el valor calculado para mostrar
           nombre_cliente_factura: facturaInfo?.Nombre_Cliente || pago.nombre_cliente,
         },
       };
-
-      console.log('[DEBUG Saldo - Respuesta API] Objeto pago enviado al frontend:', JSON.stringify(responsePayload, null, 2));
 
       return res.status(200).json(responsePayload);
     } else {
@@ -407,10 +381,9 @@ router.post("/test-webhook", async (req, res) => {
 });
 
 // --- LÓGICA REUTILIZABLE PARA GUARDAR EN BASE DE DATOS ---
-async function processAndSaveTransaction(transaction) { // Eliminado paymentOption y paymentMotive
+async function processAndSaveTransaction(transaction) {
   const db = getDb();
   const pagosCollection = db.collection("pagos_recibidos");
-  const paymentIntentsCollection = db.collection("payment_intents"); // Nueva colección
   const tx = transaction;
 
   // 1. Verificar si la transacción ya fue procesada
@@ -420,40 +393,35 @@ async function processAndSaveTransaction(transaction) { // Eliminado paymentOpti
     return { status: "DUPLICATED", data: pagoExistente };
   }
 
-  // 2. Extraer datos y guardarlos en MongoDB
-  const referenceParts = tx.reference.split("-");
+  // 2. Extraer datos de la referencia y de la transacción
+  const referenceParts = tx.reference.split("-"); // FAC-{Doc}-{ts}-{tipo}-{motivo}
   const referencia_factura = referenceParts.length > 1 ? referenceParts[1] : tx.reference;
+  const paymentOption = referenceParts.length > 3 ? referenceParts[3] : 'desconocido';
+  const paymentMotive = referenceParts.length > 4 ? referenceParts[4].replace(/_/g, ' ') : null;
+  const montoPagadoReal = tx.amount_in_cents / 100;
 
   const baseConocimiento = db.collection("base_conocimiento");
   const facturaInfo = await baseConocimiento.findOne({ Documento: referencia_factura });
 
-  // 3. Recuperar paymentOption, paymentMotive y el monto del payment_intents
-  const paymentIntent = await paymentIntentsCollection.findOne({ reference: tx.reference });
-  const paymentOption = paymentIntent?.paymentOption || 'desconocido';
-  const paymentMotive = paymentIntent?.paymentMotive || null;
-  const montoPagadoReal = paymentIntent?.monto || (tx.amount_in_cents / 100); // Usar monto de intent, fallback a Wompi si no existe
-
   const nuevoPago = {
     transaccion_id: tx.id,
     referencia_factura,
-    monto: montoPagadoReal, // Usar el monto real de la intención de pago
+    monto: montoPagadoReal,
     nit_cliente: facturaInfo?.Cliente || tx.customer_data?.legal_id || "No disponible",
     nombre_cliente: facturaInfo?.Nombre_Cliente || tx.customer_data?.full_name || "No disponible",
     fecha_pago: new Date(tx.created_at),
-    metodo_confirmacion: tx.sent_at ? 'webhook' : 'redirect', // Identificar cómo se confirmó
+    metodo_confirmacion: tx.sent_at ? 'webhook' : 'redirect',
     sincronizado_app_externa: false,
     datos_verificados_bd: !!facturaInfo,
-    payment_type: paymentOption, // Usar de payment_intents
-    payment_motive: paymentMotive, // Usar de payment_intents
+    payment_type: paymentOption,
+    payment_motive: paymentMotive,
     _wompi_raw_data: tx,
   };
 
   await pagosCollection.insertOne(nuevoPago);
   console.log(`✅ [Shared] Transacción ${tx.id} APROBADA y guardada en BD.`);
-
-  // 4. Limpiar el registro de payment_intents
-  await paymentIntentsCollection.deleteOne({ reference: tx.reference });
-  console.log(`[Shared] Intención de pago eliminada para referencia: ${tx.reference}`);
+  
+  // La lógica de `payment_intents` ha sido eliminada.
 
   return { status: "CREATED", data: nuevoPago };
 }
@@ -489,8 +457,6 @@ router.post("/events", async (req, res) => {
 
         // 2. Procesar solo si es una transacción aprobada
         if (event === "transaction.updated" && transaction.status === "APPROVED") {
-            // El webhook ahora llamará a processAndSaveTransaction sin los parámetros de intención,
-            // ya que estos serán recuperados internamente de payment_intents.
             await processAndSaveTransaction(transaction); 
         }
 
@@ -509,7 +475,7 @@ router.get("/response", async (req, res) => {
   console.log("--- PROCESANDO RESPUESTA DE WOMPI (REDIRECCIÓN) ---");
   console.log("Query params recibidos:", req.query);
 
-  const { id: transaction_id, env: wompi_env } = req.query; // YA NO EXTRAEMOS paymentOption, paymentMotive
+  const { id: transaction_id, env: wompi_env } = req.query;
 
   if (!transaction_id) {
     return res.redirect(`${process.env.FRONTEND_URL}/payment-response?status=error&message=NO_TX_ID`);
@@ -539,7 +505,7 @@ router.get("/response", async (req, res) => {
     const tx = transactionWrapper.data;
 
     if (tx.status === "APPROVED") {
-        await processAndSaveTransaction(tx); // YA NO PASAMOS paymentOption, paymentMotive
+        await processAndSaveTransaction(tx);
     }
     
     res.redirect(`${process.env.FRONTEND_URL}/payment-response?status=${tx.status}&ref=${tx.reference}&tx_id=${tx.id}`);
@@ -550,33 +516,4 @@ router.get("/response", async (req, res) => {
   }
 });
 
-// POST /pagos/save-intent - Guarda la intención de pago del frontend
-router.post("/save-intent", async (req, res) => {
-  try {
-    const { reference, paymentOption, paymentMotive, monto } = req.body; // Añadir monto
-
-    if (!reference || !paymentOption || monto === undefined) {
-      return res
-        .status(400)
-        .json({ error: "Faltan parámetros requeridos: reference, paymentOption, monto." });
-    }
-
-    const db = getDb();
-    const paymentIntentsCollection = db.collection("payment_intents");
-
-    // Guardar o actualizar la intención de pago
-    await paymentIntentsCollection.updateOne(
-      { reference: reference },
-      { $set: { paymentOption, paymentMotive, monto, createdAt: new Date() } }, // Guardar monto
-      { upsert: true } // Crea el documento si no existe
-    );
-
-    res.status(200).json({ message: "Intención de pago guardada exitosamente." });
-  } catch (error) {
-    console.error("Error al guardar la intención de pago:", error);
-    res
-      .status(500)
-      .json({ error: "Error interno del servidor al guardar la intención de pago." });
-  }
-});
 export default router;
