@@ -16,8 +16,6 @@ const WOMPI_API_URL = 'https://sandbox.wompi.co/v1/transactions';
 // POST /pagos/confirmacion
 router.post('/confirmacion', async (req, res) => {
   if (!WOMPI_PRIVATE_KEY) {
-    console.error("❌ Error: WOMPI_SECRET no está definido en las variables de entorno.");
-    return res.status(500).json({ error: "Error de configuración del servidor (Wompi Key missing)." });
   }
 
   const { transaction_id } = req.body;
@@ -36,7 +34,6 @@ router.post('/confirmacion', async (req, res) => {
 
     if (!response.ok) {
       const errorData = await response.json();
-      console.error('Error al consultar la transacción en Wompi:', errorData);
       return res.status(response.status).json({ error: 'Error al verificar la transacción con Wompi.', details: errorData });
     }
 
@@ -84,11 +81,9 @@ router.post('/confirmacion', async (req, res) => {
         nit_cliente = facturaInfo.Cliente || nit_cliente;
         nombre_cliente = facturaInfo.Nombre_Cliente || nombre_cliente;
         datos_verificados = true;
-      } else {
-        console.warn(`⚠️ Factura ${referencia_factura} NO encontrada en BD. Usando datos de Wompi.`);
       }
     } catch (err) {
-      console.error("Error buscando factura en BD:", err);
+      // Error handling for database query
     }
 
     const nuevoPago = {
@@ -108,7 +103,7 @@ router.post('/confirmacion', async (req, res) => {
 
     // 5. Ejecutar la sincronización (asíncrona, no bloqueante)
     sincronizarConAppExterna(nuevoPago).catch(err => {
-        console.error("Error en el proceso de sincronización:", err);
+        // Error handling for synchronization
     });
 
     // 6. Responder al frontend
@@ -123,7 +118,6 @@ router.post('/confirmacion', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error en el endpoint de confirmación de pago:', error);
     res.status(500).json({ error: 'Error interno del servidor al procesar el pago.' });
   }
 });
@@ -181,7 +175,6 @@ router.get('/reporte-excel', async (req, res) => {
     res.send(excelBuffer);
 
   } catch (error) {
-    console.error('Error generando reporte Excel:', error);
     res.status(500).json({ error: 'Error al generar el reporte.' });
   }
 });
@@ -213,7 +206,6 @@ router.get('/estado/:transactionId', async (req, res) => {
       });
     }
   } catch (error) {
-    console.error('Error consultando estado del pago:', error);
     res.status(500).json({ error: 'Error interno del servidor al consultar estado.' });
   }
 });
@@ -226,12 +218,10 @@ router.post('/wompi-webhook', async (req, res) => {
     const payload = JSON.stringify(req.body);
     
     if (!WOMPI_EVENT_SECRET) {
-      console.error("❌ Error: WOMPI_EVENT_SECRET no está definido en las variables de entorno.");
       return res.status(500).json({ error: "Error de configuración del servidor (Wompi Event Secret missing)." });
     }
 
     if (!signature) {
-      console.warn("⚠️ Webhook sin firma recibido");
       return res.status(400).json({ error: 'Firma de webhook requerida.' });
     }
 
@@ -242,7 +232,6 @@ router.post('/wompi-webhook', async (req, res) => {
       .digest('hex');
 
     if (signature !== expectedSignature) {
-      console.warn("⚠️ Firma de webhook inválida");
       return res.status(400).json({ error: 'Firma de webhook inválida.' });
     }
 
@@ -251,7 +240,6 @@ router.post('/wompi-webhook', async (req, res) => {
     
     // Validar que es un evento de actualización de transacción
     if (event.type !== 'transaction.updated') {
-      console.log(`Evento ignorado: ${event.type}`);
       return res.status(200).json({ message: 'Evento no procesado' });
     }
 
@@ -259,7 +247,6 @@ router.post('/wompi-webhook', async (req, res) => {
     
     // Validar que la transacción esté aprobada
     if (transaction.status !== 'APPROVED') {
-      console.log(`Transacción no aprobada: ${transaction.status}`);
       return res.status(200).json({ message: 'Transacción no aprobada' });
     }
 
@@ -269,7 +256,6 @@ router.post('/wompi-webhook', async (req, res) => {
     const pagoExistente = await pagosCollection.findOne({ transaccion_id: transaction.id });
 
     if (pagoExistente) {
-      console.log(`Transacción ya procesada: ${transaction.id}`);
       return res.status(200).json({ message: 'Transacción ya procesada' });
     }
 
@@ -289,11 +275,9 @@ router.post('/wompi-webhook', async (req, res) => {
         nit_cliente = facturaInfo.Cliente || nit_cliente;
         nombre_cliente = facturaInfo.Nombre_Cliente || nombre_cliente;
         datos_verificados = true;
-      } else {
-        console.warn(`⚠️ Factura ${referencia_factura} NO encontrada en BD. Usando datos de Wompi.`);
       }
     } catch (err) {
-      console.error("Error buscando factura en BD:", err);
+      // Error handling for database query
     }
 
     const nuevoPago = {
@@ -311,18 +295,16 @@ router.post('/wompi-webhook', async (req, res) => {
     };
 
     await pagosCollection.insertOne(nuevoPago);
-    console.log(`✅ Pago registrado por webhook: ${transaction.id}`);
 
     // 5. Ejecutar la sincronización (asíncrona, no bloqueante)
     sincronizarConAppExterna(nuevoPago).catch(err => {
-        console.error("Error en el proceso de sincronización:", err);
+        // Error handling for synchronization
     });
 
     // 6. Responder a Wompi
     res.status(200).json({ message: 'Webhook procesado exitosamente' });
 
   } catch (error) {
-    console.error('Error en el webhook de Wompi:', error);
     res.status(500).json({ error: 'Error interno del servidor al procesar webhook.' });
   }
 });

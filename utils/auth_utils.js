@@ -27,8 +27,6 @@ export async function obtenerUsuarioActual(req, res, next) {
     token === "Bearer" ||
     token.length < 10
   ) {
-    console.error("❌ Token vacío o corrupto:", token);
-    return res.status(401).json({ detail: "Token vacío o corrupto" });
   }
 
   try {
@@ -47,8 +45,6 @@ export async function obtenerUsuarioActual(req, res, next) {
     req.usuario = usuario;
     next();
   } catch (error) {
-    console.error("❌ Error verificando token:", error.message);
-
     // 🔥 MEJOR MENSAJE DE ERROR SEGÚN EL TIPO
     if (error.name === "TokenExpiredError") {
       return res.status(401).json({ detail: "Token expirado" });

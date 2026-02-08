@@ -31,13 +31,17 @@ app.use(
         return callback(null, true);
       }
       
-      // 🔥 Permitir cualquier subdominio de ngrok dinámicamente
+      // En producción, no permitir ngrok automáticamente
+      if (process.env.NODE_ENV === "production") {
+        return callback(new Error("Origen no permitido"), false);
+      }
+      
+      // Permitir ngrok solo en desarrollo
       if (origin.endsWith('.ngrok-free.app') || origin.endsWith('.ngrok.io')) {
         return callback(null, true);
       }
 
-      console.warn("Bloqueado por CORS:", origin);
-      callback(new Error("No permitido por CORS"));
+      return callback(new Error("Origen no permitido"), false);
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -62,7 +66,6 @@ app.use("/usuarios", usuariosRouter);
 app.use("/excel", excelRouter);
 app.use("/wompi", wompiRouter);
 app.use("/pagos", pagosRouter);
-app.use("/", pagosRouter); // Para exponer la ruta /events del webhook en la raíz
 
 
 // Manejo de rutas no encontradas
@@ -75,24 +78,42 @@ app.use("*", (req, res) => {
 
 // Manejo de errores global
 app.use((err, req, res, next) => {
-  console.error("Error del servidor:", err);
-  res.status(500).json({
-    error: "Error interno del servidor",
-    detalle: process.env.NODE_ENV === "production" ? null : err.message,
-  });
+  // Log del error para debugging
+  console.error("❌ Error en el servidor:", err.message);
+  console.error("Stack:", err.stack);
+  
+  // En producción, no exponer detalles del error
+  if (process.env.NODE_ENV === "production") {
+    res.status(500).json({
+      error: "Error interno del servidor",
+      mensaje: "Por favor contacte al administrador del sistema"
+    });
+  } else {
+    // En desarrollo, mostrar detalles del error
+    res.status(500).json({
+      error: "Error interno del servidor",
+      detalle: err.message,
+      stack: err.stack
+    });
+  }
 });
 
 
-// ... (Configuración de puerto y arranque)
-
+// Middleware de logging para producción
+if (process.env.NODE_ENV === "production") {
+  app.use((req, res, next) => {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - IP: ${req.ip}`);
+    next();
+  });
+}
 
 const PORT = process.env.PORT || 8000;
 
 // Iniciar servidor solo después de conectar a BD
 connectDB().then(() => {
   app.listen(PORT, () => {
-    console.log(`✅ Servidor Express funcionando en puerto ${PORT}`);
-    console.log(`✅ MODO: ${process.env.NODE_ENV || "DESARROLLO LOCAL"}`);
-    console.log(`✅ CORS configurado para desarrollo local`);
+    console.log(`🚀 Servidor Express iniciado en el puerto ${PORT}`);
+    console.log(`📡 Entorno: ${process.env.NODE_ENV || "DESARROLLO LOCAL"}`);
+    console.log(`⏰ Inicio: ${new Date().toISOString()}`);
   });
 });

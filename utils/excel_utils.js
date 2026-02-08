@@ -147,16 +147,12 @@ export function cleanNumber(val) {
 
 export function processExcelRow(row) {
   const out = {};
-  console.log("[DEBUG processExcelRow] Processing row:", JSON.stringify(row)); // Log la fila cruda de entrada
 
   try {
     for (const [rawK, v] of Object.entries(row)) {
-      console.log(`  [DEBUG processExcelRow] Raw Key: "${rawK}", Value: "${v}"`); // Log clave/valor crudos
-
       const k = normalizeKey(rawK);
       let val = v;
       if (typeof val === "string") val = val.trim();
-      console.log(`  [DEBUG processExcelRow] Normalized Key: "${k}", Cleaned Value: "${val}"`); // Log clave normalizada/valor limpio
 
       // 1. Procesar Fechas
       if (isDateKey(k)) {
@@ -185,32 +181,27 @@ export function processExcelRow(row) {
         }
 
         out[k] = converted;
-        console.log(`    [DEBUG processExcelRow] Processed as DATE: ${k} = ${out[k]}`);
         continue;
       }
 
       // 2. Procesar Números
       if (isNumericKey(k)) {
         out[k] = cleanNumber(val);
-        console.log(`    [DEBUG processExcelRow] Processed as NUMBER: ${k} = ${out[k]}`);
         continue;
       }
 
       // 3. Otros campos (strings)
       out[k] = val;
-      console.log(`    [DEBUG processExcelRow] Processed as OTHER: ${k} = ${out[k]}`);
 
       // 4. Optimización para búsqueda por NIT
       if (k === "Cliente") {
         const nitLimpio = String(val || "").replace(/\D/g, "");
         out["Cliente_Busqueda"] = nitLimpio;
         out["Cliente_Core"] = nitLimpio.substring(0, 9);
-        console.log(`    [DEBUG processExcelRow] Processed Cliente for search: ${out["Cliente_Busqueda"]}`);
       }
     }
     return out;
   } catch (error) {
-    console.error("[ERROR processExcelRow] Failed to process row:", JSON.stringify(row), "Error:", error.message);
     throw error; // Re-lanzar el error para que sea capturado por el try/catch del endpoint
   }
 }
