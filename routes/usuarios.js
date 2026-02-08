@@ -8,7 +8,7 @@ import { obtenerUsuarioActual, soloAdmin } from "../utils/auth_utils.js";
 dotenv.config();
 
 const router = express.Router();
-const SECRET_KEY = process.env.SECRET_KEY;
+const SECRET_KEY = process.env.SECRET_KEY || "clave_super_secreta";
 
 // Lazy loading de la colección para esperar a la conexión
 const getUsuariosCollection = () => getDb().collection("usuarios");

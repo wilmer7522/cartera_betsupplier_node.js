@@ -18,7 +18,7 @@
     "exceljs": "^4.4.0",
     "express": "^4.22.1",
     "jsonwebtoken": "^9.0.3",
-    "mongodb": "^6.21.0",
+    "mongodb": "^4.15.0",
     "multer": "^2.0.2",
     "xlsx": "^0.18.5"
   },
