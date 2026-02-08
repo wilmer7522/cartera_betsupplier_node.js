@@ -147,58 +147,70 @@ export function cleanNumber(val) {
 
 export function processExcelRow(row) {
   const out = {};
+  console.log("[DEBUG processExcelRow] Processing row:", JSON.stringify(row)); // Log la fila cruda de entrada
 
-  for (const [rawK, v] of Object.entries(row)) {
-    const k = normalizeKey(rawK);
-    let val = v;
-    if (typeof val === "string") val = val.trim();
+  try {
+    for (const [rawK, v] of Object.entries(row)) {
+      console.log(`  [DEBUG processExcelRow] Raw Key: "${rawK}", Value: "${v}"`); // Log clave/valor crudos
 
-    // 1. Procesar Fechas
-    if (isDateKey(k)) {
-      let converted = val;
+      const k = normalizeKey(rawK);
+      let val = v;
+      if (typeof val === "string") val = val.trim();
+      console.log(`  [DEBUG processExcelRow] Normalized Key: "${k}", Cleaned Value: "${val}"`); // Log clave normalizada/valor limpio
 
-      if (val instanceof Date) {
-        converted = new Date(
-          Date.UTC(val.getFullYear(), val.getMonth(), val.getDate()),
-        );
-      } else if (typeof val === "number") {
-        const d = excelSerialToDate(val);
-        converted = d || val;
-      } else if (typeof val === "string" && /^\d+(?:\.\d+)?$/.test(val)) {
-        const d = excelSerialToDate(val);
-        converted = d || val;
-      } else if (typeof val === "string") {
-        const m = val.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
-        if (m) {
-          let year = parseInt(m[3], 10);
-          if (year < 100) year += year < 70 ? 2000 : 1900;
-          const month = parseInt(m[2], 10) - 1;
-          const day = parseInt(m[1], 10);
-          const d = new Date(Date.UTC(year, month, day));
-          if (!isNaN(d)) converted = d;
+      // 1. Procesar Fechas
+      if (isDateKey(k)) {
+        let converted = val;
+
+        if (val instanceof Date) {
+          converted = new Date(
+            Date.UTC(val.getFullYear(), val.getMonth(), val.getDate()),
+          );
+        } else if (typeof val === "number") {
+          const d = excelSerialToDate(val);
+          converted = d || val;
+        } else if (typeof val === "string" && /^\d+(?:\.\d+)?$/.test(val)) {
+          const d = excelSerialToDate(val);
+          converted = d || val;
+        } else if (typeof val === "string") {
+          const m = val.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+          if (m) {
+            let year = parseInt(m[3], 10);
+            if (year < 100) year += year < 70 ? 2000 : 1900;
+            const month = parseInt(m[2], 10) - 1;
+            const day = parseInt(m[1], 10);
+            const d = new Date(Date.UTC(year, month, day));
+            if (!isNaN(d)) converted = d;
+          }
         }
+
+        out[k] = converted;
+        console.log(`    [DEBUG processExcelRow] Processed as DATE: ${k} = ${out[k]}`);
+        continue;
       }
 
-      out[k] = converted;
-      continue;
-    }
+      // 2. Procesar Números
+      if (isNumericKey(k)) {
+        out[k] = cleanNumber(val);
+        console.log(`    [DEBUG processExcelRow] Processed as NUMBER: ${k} = ${out[k]}`);
+        continue;
+      }
 
-    // 2. Procesar Números
-    if (isNumericKey(k)) {
-      out[k] = cleanNumber(val);
-      continue;
-    }
+      // 3. Otros campos (strings)
+      out[k] = val;
+      console.log(`    [DEBUG processExcelRow] Processed as OTHER: ${k} = ${out[k]}`);
 
-    // 3. Otros campos (strings)
-    out[k] = val;
-
-    // 4. Optimización para búsqueda por NIT
-    if (k === "Cliente") {
-      const nitLimpio = String(val || "").replace(/\D/g, "");
-      out["Cliente_Busqueda"] = nitLimpio;
-      out["Cliente_Core"] = nitLimpio.substring(0, 9);
+      // 4. Optimización para búsqueda por NIT
+      if (k === "Cliente") {
+        const nitLimpio = String(val || "").replace(/\D/g, "");
+        out["Cliente_Busqueda"] = nitLimpio;
+        out["Cliente_Core"] = nitLimpio.substring(0, 9);
+        console.log(`    [DEBUG processExcelRow] Processed Cliente for search: ${out["Cliente_Busqueda"]}`);
+      }
     }
+    return out;
+  } catch (error) {
+    console.error("[ERROR processExcelRow] Failed to process row:", JSON.stringify(row), "Error:", error.message);
+    throw error; // Re-lanzar el error para que sea capturado por el try/catch del endpoint
   }
-
-  return out;
 }
