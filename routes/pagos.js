@@ -403,13 +403,16 @@ async function processAndSaveTransaction(transaction) {
   const baseConocimiento = db.collection("base_conocimiento");
   const facturaInfo = await baseConocimiento.findOne({ Documento: referencia_factura });
 
+  const utcDate = new Date(tx.created_at);
+  const bogotaDate = new Date(utcDate.getTime() - (5 * 60 * 60 * 1000)); // Restar 5 horas para UTC-5
+
   const nuevoPago = {
     transaccion_id: tx.id,
     referencia_factura,
     monto: montoPagadoReal,
     nit_cliente: facturaInfo?.Cliente || tx.customer_data?.legal_id || "No disponible",
     nombre_cliente: facturaInfo?.Nombre_Cliente || tx.customer_data?.full_name || "No disponible",
-    fecha_pago: new Date(tx.created_at),
+    fecha_pago: bogotaDate, // Usar la fecha ajustada a Colombia
     metodo_confirmacion: tx.sent_at ? 'webhook' : 'redirect',
     sincronizado_app_externa: false,
     datos_verificados_bd: !!facturaInfo,
