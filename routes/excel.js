@@ -198,7 +198,7 @@ router.get("/clientes_paginados", obtenerUsuarioActual, async (req, res) => {
     const clientesMap = new Map();
     registros.forEach((r) => {
       const nit = r.Cliente?.toString().trim();
-      const nombre = r.Nombre_Cliente || r.Nombre || nit;
+      const nombre = r.Nombre_Cliente || nit; // Usar Nombre_Cliente en lugar de Nombre
       if (nit && !clientesMap.has(nit)) {
         clientesMap.set(nit, { nit, nombre });
       }
