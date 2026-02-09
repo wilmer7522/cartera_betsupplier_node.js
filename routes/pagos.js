@@ -341,8 +341,7 @@ router.post("/wompi/signature", async (req, res) => {
     // El orden CORRECTO es: reference + amountInCents + currency + integritySecret
     const payload = `${reference}${amountInCents}${currency}${wompiIntegritySecret}`;
 
-    console.log("--- DEBUG FIRMA ---");
-    console.log("Payload a firmar:", payload);
+    
 
     // Calcular la firma SHA-256 (Wompi requiere SHA-256, no MD5)
     const signature = crypto.createHash("sha256").update(payload).digest("hex");
@@ -361,16 +360,14 @@ router.post("/wompi/signature", async (req, res) => {
 
 // POST /pagos/wompi-webhook (versión ultra-simple para depuración)
 router.post("/wompi-webhook", (req, res) => {
-  console.log("--- NUEVO EVENTO RECIBIDO ---");
-  console.log(JSON.stringify(req.body, null, 2));
+  
   res.status(200).send("OK");
 });
 
 // Ruta para pruebas de webhook
 router.post("/test-webhook", async (req, res) => {
   try {
-    console.log("🧪 [PRUEBA] Webhook de prueba recibido");
-    console.log("🧪 [PRUEBA] Body:", JSON.stringify(req.body, null, 2));
+    
 
     res.status(200).json({
       message: "Webhook de prueba procesado",
@@ -392,7 +389,7 @@ async function processAndSaveTransaction(transaction) {
   // 1. Verificar si la transacción ya fue procesada
   const pagoExistente = await pagosCollection.findOne({ transaccion_id: tx.id });
   if (pagoExistente) {
-    console.log(`[Shared] Transacción ${tx.id} ya fue procesada (DUPLICADO).`);
+    
     return { status: "DUPLICATED", data: pagoExistente };
   }
 
@@ -422,7 +419,7 @@ async function processAndSaveTransaction(transaction) {
   };
 
   await pagosCollection.insertOne(nuevoPago);
-  console.log(`✅ [Shared] Transacción ${tx.id} APROBADA y guardada en BD.`);
+  
   
   // La lógica de `payment_intents` ha sido eliminada.
 
@@ -457,7 +454,7 @@ router.post("/events", async (req, res) => {
             return res.status(401).json({ error: "Invalid signature" });
         }
 
-        console.log(`[Webhook] Evento '${event}' recibido y verificado para TX: ${transaction.id}`);
+        
 
         // 2. Procesar solo si es una transacción aprobada
         if (event === "transaction.updated" && transaction.status === "APPROVED") {
@@ -476,8 +473,7 @@ router.post("/events", async (req, res) => {
 
 // Ruta de redirección que procesa la confirmación del pago
 router.get("/response", async (req, res) => {
-  console.log("--- PROCESANDO RESPUESTA DE WOMPI (REDIRECCIÓN) ---");
-  console.log("Query params recibidos:", req.query);
+  
 
   const { id: transaction_id, env: wompi_env } = req.query;
 
@@ -487,7 +483,7 @@ router.get("/response", async (req, res) => {
 
   try {
     const wompiApiUrl = wompi_env === 'test' ? 'https://sandbox.wompi.co/v1/transactions' : 'https://production.wompi.co/v1/transactions';
-    console.log(`[Redirect] Verificando TX contra URL: ${wompiApiUrl}`);
+    
     
     const privateKey = process.env.WOMPI_PRIVATE_KEY || process.env.WOMPI_SECRET;
     if (!privateKey) {
