@@ -125,12 +125,11 @@ router.get("/ver_dashboard", obtenerUsuarioActual, async (req, res) => {
 });
 
 // === 2.1. Clientes Únicos (para AdminPanel) ===
-// === 2.1. Clientes Únicos (Optimizado para MongoDB) ===
 router.get("/clientes_unicos", obtenerUsuarioActual, async (req, res) => {
   try {
     const usuario = req.usuario;
     const baseConocimiento = getBaseConocimiento();
-    let matchQuery = {};
+    let query = {};
 
     // 1. Definir filtros según rol
     if (usuario.rol === "cliente") {
@@ -138,30 +137,28 @@ router.get("/clientes_unicos", obtenerUsuarioActual, async (req, res) => {
         (typeof c === "object" ? c.nit : c).toString().trim()
       );
       if (!nits.length) return res.json({ total: 0, clientes: [] });
-      matchQuery = { Cliente: { $in: nits } };
+      query = { Cliente: { $in: nits } };
     } else if (usuario.rol === "vendedor") {
       const vends = usuario.vendedores_asociados || [];
-      matchQuery = { Nombre_Vendedor: { $in: vends.map(v => new RegExp(v, "i")) } };
+      query = { Nombre_Vendedor: { $in: vends.map(v => new RegExp(v, "i")) } };
     }
 
-    // 2. Usar Agregación para obtener únicos directamente de la DB
-    const clientes = await baseConocimiento.aggregate([
-      { $match: matchQuery },
-      { 
-        $group: { 
-          _id: "$Cliente", 
-          nombre: { $first: "$Nombre_Cliente" } 
-        } 
-      },
-      { 
-        $project: { 
-          _id: 0, 
-          nit: "$_id", 
-          nombre: { $ifNull: ["$nombre", "$_id"] } 
-        } 
-      },
-      { $sort: { nombre: 1 } }
-    ]).toArray();
+    // 2. Obtener todos los registros que coincidan con el filtro
+    const registros = await baseConocimiento.find(query).toArray();
+    
+    // 3. Crear mapa de clientes únicos
+    const clientesMap = new Map();
+    registros.forEach((r) => {
+      const nit = r.Cliente?.toString().trim();
+      const nombre = r.Nombre_Cliente || nit;
+      if (nit && !clientesMap.has(nit)) {
+        clientesMap.set(nit, { nit, nombre });
+      }
+    });
+
+    const clientes = Array.from(clientesMap.values()).sort((a, b) => 
+      a.nombre.localeCompare(b.nombre)
+    );
 
     return res.json({ total: clientes.length, clientes });
   } catch (err) {
