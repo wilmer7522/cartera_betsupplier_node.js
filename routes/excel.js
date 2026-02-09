@@ -125,61 +125,47 @@ router.get("/ver_dashboard", obtenerUsuarioActual, async (req, res) => {
 });
 
 // === 2.1. Clientes Únicos (para AdminPanel) ===
+// === 2.1. Clientes Únicos (Optimizado para MongoDB) ===
 router.get("/clientes_unicos", obtenerUsuarioActual, async (req, res) => {
   try {
     const usuario = req.usuario;
     const baseConocimiento = getBaseConocimiento();
+    let matchQuery = {};
 
-    // Si es cliente, solo puede ver sus clientes asociados
+    // 1. Definir filtros según rol
     if (usuario.rol === "cliente") {
-      const nitsPermitidos = (usuario.clientes_asociados || []).map((c) =>
-        (typeof c === "object" ? c.nit : c).toString().trim(),
+      const nits = (usuario.clientes_asociados || []).map(c => 
+        (typeof c === "object" ? c.nit : c).toString().trim()
       );
-      if (nitsPermitidos.length === 0) return res.json({ total: 0, clientes: [] });
-
-      const query = { Cliente: { $in: nitsPermitidos } };
-      const registros = await baseConocimiento.find(query).toArray();
-      const clientesMap = new Map();
-      registros.forEach((r) => {
-        const nit = r.Cliente?.toString().trim();
-        const nombre = r.Nombre_Cliente || r.Nombre || nit;
-        if (nit && !clientesMap.has(nit)) {
-          clientesMap.set(nit, { nit, nombre });
-        }
-      });
-      return res.json({ total: clientesMap.size, clientes: Array.from(clientesMap.values()) });
-    }
-
-    // Si es vendedor, solo puede ver clientes de sus vendedores asociados
-    if (usuario.rol === "vendedor") {
+      if (!nits.length) return res.json({ total: 0, clientes: [] });
+      matchQuery = { Cliente: { $in: nits } };
+    } else if (usuario.rol === "vendedor") {
       const vends = usuario.vendedores_asociados || [];
-      const query = {
-        Nombre_Vendedor: { $in: vends.map((v) => new RegExp(v, "i")) },
-      };
-      const registros = await baseConocimiento.find(query).toArray();
-      const clientesMap = new Map();
-      registros.forEach((r) => {
-        const nit = r.Cliente?.toString().trim();
-        const nombre = r.Nombre_Cliente || r.Nombre || nit;
-        if (nit && !clientesMap.has(nit)) {
-          clientesMap.set(nit, { nit, nombre });
-        }
-      });
-      return res.json({ total: clientesMap.size, clientes: Array.from(clientesMap.values()) });
+      matchQuery = { Nombre_Vendedor: { $in: vends.map(v => new RegExp(v, "i")) } };
     }
 
-    // Admin: todos los clientes
-    const registros = await baseConocimiento.find({}).toArray();
-    const clientesMap = new Map();
-    registros.forEach((r) => {
-      const nit = r.Cliente?.toString().trim();
-      const nombre = r.Nombre_Cliente || r.Nombre || nit;
-      if (nit && !clientesMap.has(nit)) {
-        clientesMap.set(nit, { nit, nombre });
-      }
-    });
-    return res.json({ total: clientesMap.size, clientes: Array.from(clientesMap.values()) });
+    // 2. Usar Agregación para obtener únicos directamente de la DB
+    const clientes = await baseConocimiento.aggregate([
+      { $match: matchQuery },
+      { 
+        $group: { 
+          _id: "$Cliente", 
+          nombre: { $first: "$Nombre_Cliente" } 
+        } 
+      },
+      { 
+        $project: { 
+          _id: 0, 
+          nit: "$_id", 
+          nombre: { $ifNull: ["$nombre", "$_id"] } 
+        } 
+      },
+      { $sort: { nombre: 1 } }
+    ]).toArray();
+
+    return res.json({ total: clientes.length, clientes });
   } catch (err) {
+    console.error("Error en clientes_unicos:", err);
     res.status(500).json({ detail: "Error en la consulta de clientes únicos" });
   }
 });
