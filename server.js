@@ -102,7 +102,7 @@ app.use((err, req, res, next) => {
 // Middleware de logging para producción
 if (process.env.NODE_ENV === "production") {
   app.use((req, res, next) => {
-    console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - IP: ${req.ip}`);
+    
     next();
   });
 }
@@ -112,8 +112,6 @@ const PORT = process.env.PORT || 8000;
 // Iniciar servidor solo después de conectar a BD
 connectDB().then(() => {
   app.listen(PORT, () => {
-    console.log(`🚀 Servidor Express iniciado en el puerto ${PORT}`);
-    console.log(`📡 Entorno: ${process.env.NODE_ENV || "DESARROLLO LOCAL"}`);
-    console.log(`⏰ Inicio: ${new Date().toISOString()}`);
+    
   });
 });
