@@ -3,6 +3,7 @@ import { getDb } from "../database.js";
 import dotenv from "dotenv";
 import * as XLSX from "xlsx";
 import crypto from "crypto";
+import { formatInTimeZone } from "date-fns-tz";
 
 dotenv.config();
 
@@ -189,7 +190,7 @@ router.get("/reporte-excel", async (req, res) => {
       "Tipo de Pago": p.payment_type || 'N/A', // Nuevo campo
       "Motivo de Pago": p.payment_motive || 'N/A', // Nuevo campo
       "Fecha Pago": p.fecha_pago
-        ? new Date(p.fecha_pago).toLocaleString("es-CO")
+        ? formatInTimeZone(p.fecha_pago, 'America/Bogota', 'dd/MM/yyyy HH:mm:ss')
         : "",
     }));
 
@@ -261,7 +262,9 @@ router.get("/estado/:transactionId", async (req, res) => {
           monto: pago.monto,
           cliente: pago.nombre_cliente,
           nit: pago.nit_cliente,
-          fecha: pago.fecha_pago,
+          fecha: pago.fecha_pago 
+            ? formatInTimeZone(pago.fecha_pago, 'America/Bogota', "d 'de' MMMM 'de' yyyy, h:mm a")
+            : null,
           webhook_procesado: pago.metodo_confirmacion === 'webhook',
           payment_type: pago.payment_type,
           payment_motive: pago.payment_motive,
@@ -403,16 +406,13 @@ async function processAndSaveTransaction(transaction) {
   const baseConocimiento = db.collection("base_conocimiento");
   const facturaInfo = await baseConocimiento.findOne({ Documento: referencia_factura });
 
-  const utcDate = new Date(tx.created_at);
-  const bogotaDate = new Date(utcDate.getTime() - (5 * 60 * 60 * 1000)); // Restar 5 horas para UTC-5
-
   const nuevoPago = {
     transaccion_id: tx.id,
     referencia_factura,
     monto: montoPagadoReal,
     nit_cliente: facturaInfo?.Cliente || tx.customer_data?.legal_id || "No disponible",
     nombre_cliente: facturaInfo?.Nombre_Cliente || tx.customer_data?.full_name || "No disponible",
-    fecha_pago: bogotaDate, // Usar la fecha ajustada a Colombia
+    fecha_pago: new Date(tx.created_at), // revertido a UTC
     metodo_confirmacion: tx.sent_at ? 'webhook' : 'redirect',
     sincronizado_app_externa: false,
     datos_verificados_bd: !!facturaInfo,
