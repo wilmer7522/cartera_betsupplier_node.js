@@ -149,18 +149,22 @@ router.post("/confirmacion", async (req, res) => {
 // GET /pagos/reporte-excel
 router.get("/reporte-excel", async (req, res) => {
   try {
-    const { fecha } = req.query; // YYYY-MM-DD
+    const { fecha, fechaFin } = req.query; // YYYY-MM-DD
 
     if (!fecha) {
       return res
         .status(400)
-        .json({ error: "Debes proporcionar una fecha (YYYY-MM-DD)." });
+        .json({ error: "Debes proporcionar una fecha de inicio (YYYY-MM-DD)." });
     }
 
-    // Calcular inicio y fin del día en UTC (o local, dependiendo de cómo guardes las fechas)
-    // Asumiendo que 'fecha' viene en formato local 'YYYY-MM-DD' y queremos buscar todo ese día.
+    // El inicio del rango es el comienzo del día 'fecha'
     const startOfDay = new Date(`${fecha}T00:00:00.000Z`);
-    const endOfDay = new Date(`${fecha}T23:59:59.999Z`);
+
+    // Si se proporciona fechaFin, el fin del rango es el final de ese día.
+    // Si no, el fin del rango es el final del mismo día 'fecha'.
+    const endOfDay = fechaFin 
+      ? new Date(`${fechaFin}T23:59:59.999Z`)
+      : new Date(`${fecha}T23:59:59.999Z`);
 
     const db = getDb();
     const pagosCollection = db.collection("pagos_recibidos");
@@ -177,7 +181,7 @@ router.get("/reporte-excel", async (req, res) => {
     if (pagos.length === 0) {
       return res
         .status(404)
-        .json({ error: "No se encontraron pagos para la fecha especificada." });
+        .json({ error: "No se encontraron pagos para el rango de fechas especificado." });
     }
 
     // Transformar datos para Excel
@@ -187,8 +191,8 @@ router.get("/reporte-excel", async (req, res) => {
       Monto: p.monto,
       "NIT Cliente": p.nit_cliente,
       "Nombre Cliente": p.nombre_cliente,
-      "Tipo de Pago": p.payment_type || 'N/A', // Nuevo campo
-      "Motivo de Pago": p.payment_motive || 'N/A', // Nuevo campo
+      "Tipo de Pago": p.payment_type || 'N/A',
+      "Motivo de Pago": p.payment_motive || 'N/A',
       "Fecha Pago": p.fecha_pago
         ? formatInTimeZone(p.fecha_pago, 'America/Bogota', 'dd/MM/yyyy HH:mm:ss')
         : "",
@@ -205,10 +209,13 @@ router.get("/reporte-excel", async (req, res) => {
       type: "buffer",
     });
 
+    // Nombre de archivo dinámico
+    const nombreArchivo = "Reporte_de_Pagos_Cartera.xlsx";
+
     // Configurar headers para descarga
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename=reporte_pagos_${fecha}.xlsx`,
+      `attachment; filename=${nombreArchivo}`,
     );
     res.setHeader(
       "Content-Type",
