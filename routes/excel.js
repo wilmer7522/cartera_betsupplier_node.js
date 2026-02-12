@@ -6,6 +6,9 @@ import fs from "fs";
 import { getDb } from "../database.js";
 import { obtenerUsuarioActual, soloAdmin } from "../utils/auth_utils.js";
 import { processExcelRow } from "../utils/excel_utils.js";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const router = express.Router();
 

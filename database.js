@@ -1,5 +1,8 @@
 // database.js
 import { MongoClient } from "mongodb";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 // Cambiamos localhost por 127.0.0.1 para evitar problemas de resolución de DNS
 const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/cartera_db";

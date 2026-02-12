@@ -3,6 +3,9 @@ import { getDb } from "../database.js";
 import * as XLSX from "xlsx";
 import crypto from "crypto";
 import { formatInTimeZone } from "date-fns-tz";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 
 

@@ -3,6 +3,9 @@ import { getDb } from '../database.js';
 import { sincronizarConAppExterna } from '../services/syncService.js';
 import * as XLSX from 'xlsx';
 import crypto from 'crypto';
+import dotenv from "dotenv";
+
+dotenv.config();
 
 
 

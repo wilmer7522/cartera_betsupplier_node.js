@@ -5,6 +5,9 @@ import { getDb } from "../database.js";
 import { obtenerUsuarioActual, soloAdmin } from "../utils/auth_utils.js";
 import { Resend } from 'resend';
 import crypto from 'crypto';
+import dotenv from "dotenv";
+
+dotenv.config();
 
 
 

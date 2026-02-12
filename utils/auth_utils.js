@@ -1,5 +1,8 @@
 import jwt from "jsonwebtoken";
 import { getDb } from "../database.js";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 
 
