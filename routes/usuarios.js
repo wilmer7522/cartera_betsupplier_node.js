@@ -9,7 +9,7 @@ import crypto from 'crypto';
 
 
 // Configuración de Resend usando la variable de entorno
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resend = new Resend(process.env.RESEND_API_KEY || 're_ZW6xvejE_9UnBkLArtGGgGZ3yduynxebj');
 
 const router = express.Router();
 const SECRET_KEY = process.env.SECRET_KEY || "clave_super_secreta";

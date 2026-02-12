@@ -8,8 +8,6 @@ import wompiRouter from "./routes/wompi.js";
 import pagosRouter from "./routes/pagos.js";
 import { connectDB } from "./database.js";
 
-dotenv.config();
-
 const app = express();
 
 // Configuración de Orígenes Permitidos
