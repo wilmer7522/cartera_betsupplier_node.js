@@ -58,7 +58,7 @@ router.post("/solicitar-recuperacion", async (req, res) => {
     const resetUrl = `${FRONTEND_URL}/reset-password/${token}`;
 
     const { error } = await resend.emails.send({
-      from: 'Soporte <onboarding@resend.dev>',
+      from: 'Soporte <soporte@betsupplier.co>',
       to: [correoLower],
       subject: 'Recuperación de Contraseña - Cartera Betsupplier',
       html: `
