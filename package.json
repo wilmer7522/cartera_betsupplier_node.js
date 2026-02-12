@@ -22,6 +22,7 @@
     "jsonwebtoken": "^9.0.3",
     "mongodb": "^4.15.0",
     "multer": "^2.0.2",
+    "resend": "^3.2.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

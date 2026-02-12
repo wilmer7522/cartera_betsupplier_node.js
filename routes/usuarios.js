@@ -1,14 +1,14 @@
-import express from "express";
-import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
-import dotenv from "dotenv";
-import { getDb } from "../database.js";
-import { obtenerUsuarioActual, soloAdmin } from "../utils/auth_utils.js";
+import { Resend } from 'resend';
+import crypto from 'crypto';
 
-dotenv.config();
+// Configurar Resend (aunque se recomienda usar process.env.RESEND_API_KEY)
+// El usuario proporcionó la clave: re_ZW6xvejE_9UnBkLArtGGgGZ3yduynxebj
+// Se usará process.env.RESEND_API_KEY preferiblemente, pero se puede instanciar con la clave si falla.
+const resend = new Resend(process.env.RESEND_API_KEY || 're_ZW6xvejE_9UnBkLArtGGgGZ3yduynxebj');
 
 const router = express.Router();
 const SECRET_KEY = process.env.SECRET_KEY || "clave_super_secreta";
+const FRONTEND_URL = process.env.FRONTEND_URL || "https://portal.betsupplier.co"; // Fallback a producción si no está definido
 
 // Lazy loading de la colección para esperar a la conexión
 const getUsuariosCollection = () => getDb().collection("usuarios");
@@ -20,6 +20,108 @@ async function buscarNombreCliente(nit) {
   const registro = await db.collection("base_conocimiento").findOne({ Cliente: nit.toString().trim() });
   return registro ? registro.Nombre_Cliente : nit; // Si lo encuentra devuelve el nombre, si no, el NIT
 }
+
+// === SOLICITAR RECUPERACIÓN DE CONTRASEÑA ===
+router.post("/solicitar-recuperacion", async (req, res) => {
+  try {
+    const { correo } = req.body;
+    const correoLower = correo.trim().toLowerCase();
+
+    const usuario = await getUsuariosCollection().findOne({ correo: correoLower });
+    if (!usuario) {
+      // Por seguridad, no indicamos explícitamente si el correo no existe, 
+      // o podemos devolver éxito falso simulado.
+      // Pero para UX interna, a veces se prefiere avisar.
+      // El usuario pidió: "si un correo no existe, puedes devolver un mensaje genérico por seguridad"
+      return res.json({ 
+        mensaje: "Si el correo existe, se ha enviado un enlace de recuperación." 
+      });
+    }
+
+    // Generar token
+    const token = crypto.randomBytes(20).toString('hex');
+    const expiracion = new Date(Date.now() + 3600000); // 1 hora
+
+    // Guardar en DB
+    await getUsuariosCollection().updateOne(
+      { correo: correoLower },
+      { 
+        $set: { 
+          resetPasswordToken: token,
+          resetPasswordExpires: expiracion
+        } 
+      }
+    );
+
+    // Enviar correo
+    const resetUrl = `${FRONTEND_URL}/reset-password/${token}`;
+
+    const { data, error } = await resend.emails.send({
+      from: 'Soporte <onboarding@resend.dev>', // O el dominio verificado del usuario si tiene uno
+      to: [correoLower],
+      subject: 'Recuperación de Contraseña - Cartera Betsupplier',
+      html: `
+        <div style="font-family: Arial, sans-serif; color: #333;">
+          <h2>Recuperación de Contraseña</h2>
+          <p>Hola ${usuario.nombre || 'Usuario'},</p>
+          <p>Has solicitado restablecer tu contraseña. Haz clic en el siguiente enlace para continuar:</p>
+          <p>
+            <a href="${resetUrl}" style="background-color: #00bcd4; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Restablecer Contraseña</a>
+          </p>
+          <p>O copia y pega este enlace en tu navegador:</p>
+          <p>${resetUrl}</p>
+          <p>Este enlace expirará en 1 hora.</p>
+          <p>Si no solicitaste esto, ignora este correo.</p>
+        </div>
+      `
+    });
+
+    if (error) {
+      console.error("Error enviando correo Resend:", error);
+      return res.status(500).json({ detail: "Error al enviar el correo de recuperación." });
+    }
+
+    res.json({ mensaje: "Si el correo existe, se ha enviado un enlace de recuperación." });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ detail: `Error: ${err.message}` });
+  }
+});
+
+// === RESTABLECER CONTRASEÑA ===
+router.post("/reset-password/:token", async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { password } = req.body;
+
+    const usuario = await getUsuariosCollection().findOne({
+      resetPasswordToken: token,
+      resetPasswordExpires: { $gt: new Date() }
+    });
+
+    if (!usuario) {
+      return res.status(400).json({ detail: "El enlace es inválido o ha expirado." });
+    }
+
+    // Hashear nueva contraseña
+    const hashed = await bcrypt.hash(password, 10);
+
+    // Actualizar usuario y limpiar campos de reset
+    await getUsuariosCollection().updateOne(
+      { _id: usuario._id },
+      {
+        $set: { password: hashed },
+        $unset: { resetPasswordToken: "", resetPasswordExpires: "" }
+      }
+    );
+
+    res.json({ mensaje: "✅ Contraseña actualizada correctamente. Ahora puedes iniciar sesión." });
+
+  } catch (err) {
+    res.status(500).json({ detail: `Error: ${err.message}` });
+  }
+});
 
 // === REGISTRO ===
 router.post("/registro", async (req, res) => {
