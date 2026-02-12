@@ -1,10 +1,16 @@
+import express from "express";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import dotenv from "dotenv";
+import { getDb } from "../database.js";
+import { obtenerUsuarioActual, soloAdmin } from "../utils/auth_utils.js";
 import { Resend } from 'resend';
 import crypto from 'crypto';
 
-// Configurar Resend (aunque se recomienda usar process.env.RESEND_API_KEY)
-// El usuario proporcionó la clave: re_ZW6xvejE_9UnBkLArtGGgGZ3yduynxebj
-// Se usará process.env.RESEND_API_KEY preferiblemente, pero se puede instanciar con la clave si falla.
-const resend = new Resend(process.env.RESEND_API_KEY || 're_ZW6xvejE_9UnBkLArtGGgGZ3yduynxebj');
+dotenv.config();
+
+// Configurar Resend
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 const router = express.Router();
 const SECRET_KEY = process.env.SECRET_KEY || "clave_super_secreta";
