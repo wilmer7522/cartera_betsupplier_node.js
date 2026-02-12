@@ -1,8 +1,6 @@
 import express from 'express';
 import crypto from 'crypto';
-import dotenv from 'dotenv';
 
-dotenv.config();
 
 const router = express.Router();
 

@@ -1,11 +1,10 @@
 import express from 'express';
 import { getDb } from '../database.js';
 import { sincronizarConAppExterna } from '../services/syncService.js';
-import dotenv from 'dotenv';
 import * as XLSX from 'xlsx';
 import crypto from 'crypto';
 
-dotenv.config();
+
 
 const router = express.Router();
 

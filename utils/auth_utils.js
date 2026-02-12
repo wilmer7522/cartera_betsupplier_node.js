@@ -1,8 +1,7 @@
 import jwt from "jsonwebtoken";
-import dotenv from "dotenv";
 import { getDb } from "../database.js";
 
-dotenv.config();
+
 
 const SECRET_KEY = process.env.SECRET_KEY || "clave_super_secreta";
 const getUsuariosCollection = () => getDb().collection("usuarios");

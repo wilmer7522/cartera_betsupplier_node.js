@@ -1,13 +1,12 @@
 import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import dotenv from "dotenv";
 import { getDb } from "../database.js";
 import { obtenerUsuarioActual, soloAdmin } from "../utils/auth_utils.js";
 import { Resend } from 'resend';
 import crypto from 'crypto';
 
-dotenv.config();
+
 
 // Configuración de Resend usando la variable de entorno
 const resend = new Resend(process.env.RESEND_API_KEY);

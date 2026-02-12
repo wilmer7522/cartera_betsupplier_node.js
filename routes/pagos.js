@@ -1,11 +1,10 @@
 import express from "express";
 import { getDb } from "../database.js";
-import dotenv from "dotenv";
 import * as XLSX from "xlsx";
 import crypto from "crypto";
 import { formatInTimeZone } from "date-fns-tz";
 
-dotenv.config();
+
 
 const router = express.Router();
 

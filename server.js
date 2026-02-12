@@ -1,6 +1,7 @@
+import dotenv from "dotenv";
+dotenv.config(); // PRIMERO: Cargar variables de entorno
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
 import usuariosRouter from "./routes/usuarios.js";
 import excelRouter from "./routes/excel.js";
 import wompiRouter from "./routes/wompi.js";
