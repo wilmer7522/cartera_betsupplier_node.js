@@ -52,6 +52,8 @@ export function normalizeKey(key) {
   const MAPEOS = {
     // Campos de identificación
     cliente: "Cliente",
+    mtclienteproveedor: "Mt_Cliente_Proveedor", // Alias del archivo de cupos
+    nit: "Cliente",
     nombrecliente: "Nombre_Cliente",
     centrocostos: "Centro_Costos",
     nombrezona: "Nombre_Zona",
@@ -75,6 +77,8 @@ export function normalizeKey(key) {
     nota: "Nota",
     direccioncliente: "Direccion_Cliente",
     cupocredito: "CUPO_CREDITO",
+    cupocreditocl: "Cupo_Credito_Cl", // Alias del archivo de cupos
+    cupo: "CUPO_CREDITO",
   };
 
   return MAPEOS[k] || key;

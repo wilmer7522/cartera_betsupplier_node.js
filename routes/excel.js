@@ -5,7 +5,7 @@ import ExcelJS from "exceljs";
 import fs from "fs";
 import { getDb } from "../database.js";
 import { obtenerUsuarioActual, soloAdmin } from "../utils/auth_utils.js";
-import { processExcelRow } from "../utils/excel_utils.js";
+import { processExcelRow, normalizeKey, cleanNumber } from "../utils/excel_utils.js";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -324,7 +324,7 @@ router.get("/ver_cupo_cartera", obtenerUsuarioActual, async (req, res) => {
         Mt_Cliente_Proveedor: { $in: nits.map((n) => new RegExp(n, "i")) },
       };
     }
-    const registros = await getCupoCartera().find(query).limit(1000).toArray();
+    const registros = await getCupoCartera().find(query).toArray();
     res.json({ total: registros.length, datos: registros });
   } catch (error) {
     res.status(500).json({ detail: error.message });
@@ -348,71 +348,67 @@ router.post(
       return res.status(400).json({ detail: "Formato de archivo no soportado para cupo de cartera. Por favor, sube un archivo .xlsx" });
     }
 
-    const tempFilePath = `/tmp/${Date.now()}-${originalname}`; // Ruta temporal
-    
     try {
-      fs.writeFileSync(tempFilePath, buffer); // Escribir buffer a archivo temporal
+      const workbook = xlsx.read(buffer, { type: "buffer", cellDates: true });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: "" });
 
       await getCupoCartera().deleteMany({});
 
-      const BATCH_SIZE = 1000;
-      let totalInsertados = 0;
-      let headers = null;
-      let headerRowFound = false;
-      let rowsToInsert = [];
-
-      const workbookReader = new ExcelJS.stream.xlsx.WorkbookReader(
-        tempFilePath,
-        { sharedStrings: "cache", worksheets: "emit" },
-      );
-
-      for await (const worksheetReader of workbookReader) {
-        let rowNum = 0;
-        for await (const row of worksheetReader) {
-          rowNum++;
-          if (rowNum < 5) { // Omitir las primeras 4 filas (range: 4)
-            continue;
-          }
-
-          if (!headerRowFound) {
-            headers = row.values.map(h => typeof h === 'string' ? h.trim() : h); // Obtener encabezados de la primera fila de datos
-            headerRowFound = true;
-            continue;
-          }
-          
-          const rowData = {};
-          if (headers) {
-              for (let i = 1; i < headers.length; i++) { // Asumimos headers[0] es vacío por ExcelJS
-                  let val = row.values[i];
-                  if (val && typeof val === "object") val = val.result || val.text || val;
-                  rowData[headers[i]] = val;
-              }
-          }
-          
-          if (Object.keys(rowData).length > 0) { // Asegurarse de que no sea una fila completamente vacía
-            rowsToInsert.push(rowData);
-          }
-
-          if (rowsToInsert.length >= BATCH_SIZE) {
-            await getCupoCartera().insertMany(rowsToInsert);
-            totalInsertados += rowsToInsert.length;
-            rowsToInsert = [];
-          }
+      // 1. Encontrar la fila de encabezados real
+      let headerIndex = -1;
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i].map(v => String(v || "").trim());
+        const hasNit = row.some(v => v === "Mt_Cliente_Proveedor");
+        const hasCupo = row.some(v => v === "Cupo_Credito_Cl");
+        if (hasNit && hasCupo) {
+          headerIndex = i;
+          break;
         }
       }
 
-      if (rowsToInsert.length > 0) { // Insertar cualquier lote restante
+      if (headerIndex === -1) {
+        return res.status(400).json({ detail: "No se encontraron los encabezados 'Mt_Cliente_Proveedor' y 'Cupo_Credito_Cl' en el archivo." });
+      }
+
+      const headers = rows[headerIndex];
+      const dataRows = rows.slice(headerIndex + 1);
+      const rowsToInsert = [];
+
+      for (const rowData of dataRows) {
+        const item = {};
+        let hasData = false;
+
+        headers.forEach((h, idx) => {
+          if (!h) return;
+          let val = rowData[idx];
+          
+          if (typeof val === "string") val = val.trim();
+
+          const k = normalizeKey(h);
+          if (k === "Cupo_Credito_Cl") {
+            item[k] = cleanNumber(val);
+          } else {
+            item[k] = val;
+          }
+
+          if (val !== "" && val !== null && val !== undefined) hasData = true;
+        });
+
+        // Solo insertar si tiene NIT (Mt_Cliente_Proveedor)
+        if (hasData && item["Mt_Cliente_Proveedor"]) {
+          rowsToInsert.push(item);
+        }
+      }
+
+      if (rowsToInsert.length > 0) {
         await getCupoCartera().insertMany(rowsToInsert);
-        totalInsertados += rowsToInsert.length;
       }
       
-      res.json({ mensaje: "Cupos actualizados", total_registros: totalInsertados });
+      res.json({ mensaje: "Cupos actualizados correctamente", total_registros: rowsToInsert.length });
     } catch (error) {
+      console.error("Error al procesar cupo:", error);
       res.status(500).json({ detail: error.message });
-    } finally {
-      if (fs.existsSync(tempFilePath)) {
-        fs.unlinkSync(tempFilePath); // Limpiar archivo temporal
-      }
     }
   },
 );
