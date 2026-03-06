@@ -6,6 +6,7 @@ import usuariosRouter from "./routes/usuarios.js";
 import excelRouter from "./routes/excel.js";
 import wompiRouter from "./routes/wompi.js";
 import pagosRouter from "./routes/pagos.js";
+import apiV1Router from "./routes/api_v1.js";
 import { connectDB } from "./database.js";
 
 const app = express();
@@ -59,6 +60,7 @@ app.use("/usuarios", usuariosRouter);
 app.use("/excel", excelRouter);
 app.use("/wompi", wompiRouter);
 app.use("/pagos", pagosRouter);
+app.use("/api/v1", apiV1Router);
 
 // Conexión a DB y arranque
 const PORT = process.env.PORT || 8000;
