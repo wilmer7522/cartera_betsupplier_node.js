@@ -11,8 +11,11 @@ dotenv.config();
 
 
 
-// Configuración de Resend usando la variable de entorno
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Configuración de Resend - solo inicializar si hay API key válida
+let resend = null;
+if (process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.startsWith('re_')) {
+  resend = new Resend(process.env.RESEND_API_KEY);
+}
 
 const router = express.Router();
 const SECRET_KEY = process.env.SECRET_KEY || "clave_super_secreta";
@@ -56,6 +59,12 @@ router.post("/solicitar-recuperacion", async (req, res) => {
     );
 
     const resetUrl = `${FRONTEND_URL}/reset-password/${token}`;
+
+    // Verificar si Resend está configurado
+    if (!resend) {
+      console.warn("⚠️ Resend no configurado. Enviar email simulado.");
+      return res.json({ mensaje: "Si el correo existe, se ha enviado un enlace de recuperación." });
+    }
 
     const { error } = await resend.emails.send({
       from: 'Soporte <soporte@betsupplier.co>',

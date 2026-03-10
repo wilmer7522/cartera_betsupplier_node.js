@@ -3,3 +3,22 @@
 .env.production
 node_modules/
 .DS_Store
+
+# Archivos con API Keys - NO subir a GitHub
+API_KEY_GENERADA.md
+API_KEY_PRODUCCION.txt
+API_KEY_*.txt
+API_KEY_*.md
+*_api_key*.md
+*_api_key*.txt
+generar_api_key*.mjs
+crear_api_key.mjs
+crear_api_key.js
+test_api_key.mjs
+GUIA_*.md
+README_API.md
+IMPLEMENTACION_COMPLETA.md
+example_usage.js
+GUIA_RAPIDA_API_KEY.md
+GUIA_API_KEYS_USUARIOS.md
+API_DOCUMENTATION.md
