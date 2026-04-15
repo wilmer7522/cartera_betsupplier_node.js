@@ -186,6 +186,27 @@ router.get("/reporte-excel", async (req, res) => {
         .json({ error: "No se encontraron pagos para el rango de fechas especificado." });
     }
 
+    // Obtener NITs únicos para buscar correos (asegurando que sean strings)
+    const nitsUnicos = [...new Set(pagos.map(p => p.nit_cliente?.toString().trim()).filter(nit => nit && nit !== 'No disponible'))];
+    
+    // Buscar usuarios que tengan estos NITs asociados
+    const usuarios = await db.collection('usuarios').find({
+      'clientes_asociados.nit': { $in: nitsUnicos }
+    }).toArray();
+
+    // Crear mapa de NIT -> Correo
+    const nitToEmail = {};
+    usuarios.forEach(u => {
+      if (u.clientes_asociados && Array.isArray(u.clientes_asociados)) {
+        u.clientes_asociados.forEach(c => {
+          const nit = (typeof c === 'object' ? c.nit : c).toString().trim();
+          if (nitsUnicos.includes(nit)) {
+            nitToEmail[nit] = u.correo;
+          }
+        });
+      }
+    });
+
     // Transformar datos para Excel
     const dataForExcel = pagos.map((p) => ({
       "ID Transacción": p.transaccion_id,
@@ -198,6 +219,7 @@ router.get("/reporte-excel", async (req, res) => {
       "Fecha Pago": p.fecha_pago
         ? formatInTimeZone(p.fecha_pago, 'America/Bogota', 'dd/MM/yyyy HH:mm:ss')
         : "",
+      "Correo": p.nit_cliente ? (nitToEmail[p.nit_cliente.toString().trim()] || '') : '',
     }));
 
     // Crear Workbook y Worksheet
