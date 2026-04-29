@@ -39,30 +39,12 @@ function extractDataFromReference(tx) {
 
     if (tsIndex !== -1) {
       referencia_factura = parts.slice(1, tsIndex).join("-");
-      // Respetar exactamente lo que venga en la posición de la opción
       paymentOption = parts[tsIndex + 1] || "total";
       if (parts.length > tsIndex + 2) {
         paymentMotive = parts.slice(tsIndex + 2).join("-").replace(/_/g, " ");
       }
     }
   } 
-  
-  // 3. BÚSQUEDA DE EMERGENCIA: Si la referencia es basura (como xev3fe_)
-  if (referencia_factura.startsWith("xev3") || referencia_factura.length > 20) {
-    // A. Intentar extraer número de factura de la descripción
-    const matchFactura = description.match(/\d+/);
-    if (matchFactura) {
-      referencia_factura = matchFactura[0];
-    }
-
-    // B. Intentar detectar si es un Abono buscando la palabra en la descripción
-    const descLower = description.toLowerCase();
-    if (descLower.includes("abono") || descLower.includes("abona")) {
-      paymentOption = "abono";
-    } else if (descLower.includes("otro") || descLower.includes("motivo")) {
-      paymentOption = "otro";
-    }
-  }
 
   return { referencia_factura, paymentOption, paymentMotive };
 }
@@ -546,9 +528,13 @@ router.post("/events", async (req, res) => {
 
         
 
-        // 2. Procesar solo si es una transacción aprobada
+        // 2. Procesar solo si es una transacción aprobada y proviene del portal (FAC-)
         if (event === "transaction.updated" && transaction.status === "APPROVED") {
-            await processAndSaveTransaction(transaction); 
+            if (transaction.reference && transaction.reference.startsWith("FAC-")) {
+                await processAndSaveTransaction(transaction); 
+            } else {
+                console.log(`[Webhook] Ignorando transacción externa o manual: ${transaction.reference}`);
+            }
         }
 
         // 3. Responder a Wompi que todo está bien
@@ -595,7 +581,11 @@ router.get("/response", async (req, res) => {
     const tx = transactionWrapper.data;
 
     if (tx.status === "APPROVED") {
-        await processAndSaveTransaction(tx);
+        if (tx.reference && tx.reference.startsWith("FAC-")) {
+            await processAndSaveTransaction(tx);
+        } else {
+            console.log(`[Redirect] Ignorando transacción aprobada pero externa: ${tx.reference}`);
+        }
     }
     
     res.redirect(`${process.env.FRONTEND_URL}/payment-response?status=${tx.status}&ref=${tx.reference}&tx_id=${tx.id}`);
