@@ -10,9 +10,62 @@ dotenv.config();
 
 
 const router = express.Router();
-
 const WOMPI_PRIVATE_KEY =
   process.env.WOMPI_SECRET || process.env.WOMPI_PRIVATE_KEY;
+
+/**
+ * Extrae de forma robusta la información de una referencia de pago de Wompi.
+ * Si falla la referencia, intenta buscar en la descripción o usa valores por defecto seguros.
+ */
+function extractDataFromReference(tx) {
+  const reference = tx.reference || "";
+  const description = tx.description || "";
+  const parts = reference.split("-");
+  
+  // 1. Valores por defecto (Cambiamos 'desconocido' por 'total' para no romper robots)
+  let referencia_factura = reference;
+  let paymentOption = "total"; 
+  let paymentMotive = null;
+
+  // 2. Intentar parsear por formato estándar FAC-
+  if (parts[0] === "FAC" && parts.length >= 2) {
+    let tsIndex = -1;
+    for (let i = 1; i < parts.length; i++) {
+      if (/^\d{10,15}$/.test(parts[i])) {
+        tsIndex = i;
+        break;
+      }
+    }
+
+    if (tsIndex !== -1) {
+      referencia_factura = parts.slice(1, tsIndex).join("-");
+      // Respetar exactamente lo que venga en la posición de la opción
+      paymentOption = parts[tsIndex + 1] || "total";
+      if (parts.length > tsIndex + 2) {
+        paymentMotive = parts.slice(tsIndex + 2).join("-").replace(/_/g, " ");
+      }
+    }
+  } 
+  
+  // 3. BÚSQUEDA DE EMERGENCIA: Si la referencia es basura (como xev3fe_)
+  if (referencia_factura.startsWith("xev3") || referencia_factura.length > 20) {
+    // A. Intentar extraer número de factura de la descripción
+    const matchFactura = description.match(/\d+/);
+    if (matchFactura) {
+      referencia_factura = matchFactura[0];
+    }
+
+    // B. Intentar detectar si es un Abono buscando la palabra en la descripción
+    const descLower = description.toLowerCase();
+    if (descLower.includes("abono") || descLower.includes("abona")) {
+      paymentOption = "abono";
+    } else if (descLower.includes("otro") || descLower.includes("motivo")) {
+      paymentOption = "otro";
+    }
+  }
+
+  return { referencia_factura, paymentOption, paymentMotive };
+}
 // Se elimina la constante WOMPI_EVENT_SECRET (singular) para evitar confusión.
 const WOMPI_API_URL = "https://sandbox.wompi.co/v1/transactions";
 
@@ -80,10 +133,12 @@ router.post("/confirmacion", async (req, res) => {
       });
     }
 
-    // 4. Extraer datos y guardarlos en MongoDB
-    const referenceParts = tx.reference.split("-");
-    const referencia_factura =
-      referenceParts.length > 1 ? referenceParts[1] : tx.reference;
+    // 4. Extraer datos y guardarlos en MongoDB usando lógica robusta
+    const { 
+      referencia_factura, 
+      paymentOption: payment_type, 
+      paymentMotive: payment_motive 
+    } = extractDataFromReference(tx);
 
     // 🔥 BÚSQUEDA DE DATOS SEGUROS EN BASE DE CONOCIMIENTO 🔥
     let nit_cliente = tx.customer_data?.legal_id || "No disponible";
@@ -120,6 +175,8 @@ router.post("/confirmacion", async (req, res) => {
       fecha_pago: new Date(tx.created_at),
       sincronizado_app_externa: false,
       datos_verificados_bd: datos_verificados, // Flag para saber si se cruzó con BD
+      payment_type, // Se añaden estos campos para consistencia
+      payment_motive,
       _wompi_raw_data: tx, // Guardar el objeto completo para futuras referencias
     };
 
@@ -424,11 +481,13 @@ async function processAndSaveTransaction(transaction) {
     return { status: "DUPLICATED", data: pagoExistente };
   }
 
-  // 2. Extraer datos de la referencia y de la transacción
-  const referenceParts = tx.reference.split("-"); // FAC-{Doc}-{ts}-{tipo}-{motivo}
-  const referencia_factura = referenceParts.length > 1 ? referenceParts[1] : tx.reference;
-  const paymentOption = referenceParts.length > 3 ? referenceParts[3] : 'desconocido';
-  const paymentMotive = referenceParts.length > 4 ? referenceParts[4].replace(/_/g, ' ') : null;
+  // 2. Extraer datos de la referencia y de la transacción usando lógica robusta
+  const { 
+    referencia_factura, 
+    paymentOption, 
+    paymentMotive 
+  } = extractDataFromReference(tx);
+
   const montoPagadoReal = tx.amount_in_cents / 100;
 
   const baseConocimiento = db.collection("base_conocimiento");
